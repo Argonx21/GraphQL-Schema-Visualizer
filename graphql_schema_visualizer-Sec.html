@@ -1,0 +1,4676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GraphQL Schema Visualizer & Security Auditor — Offline</title>
+  <style>
+    /* =========================================================================
+       DESIGN TOKENS & RESET (100% Offline, Zero External Dependencies)
+       ========================================================================= */
+    :root {
+      --bg-canvas: #0B0E14;
+      --bg-surface: #12161F;
+      --bg-elevated: #1A202C;
+      --bg-hover: #232B3A;
+      --border-subtle: #252D3D;
+      --border-strong: #37435A;
+      --text-primary: #F1F5F9;
+      --text-secondary: #94A3B8;
+      --text-muted: #64748B;
+
+      /* GraphQL Kind Accent Palette */
+      --accent-pink: #E535AB;       /* Root Query & Primary Accent */
+      --accent-amber: #F59E0B;      /* Root Mutation */
+      --accent-cyan: #06B6D4;       /* Root Subscription & Args */
+      --accent-indigo: #6366F1;     /* OBJECT */
+      --accent-emerald: #10B981;    /* INTERFACE */
+      --accent-purple: #A855F7;     /* UNION */
+      --accent-teal: #14B8A6;       /* ENUM */
+      --accent-orange: #F97316;     /* INPUT_OBJECT */
+      --accent-slate: #64748B;      /* SCALAR / Built-in */
+      --accent-red: #EF4444;        /* Critical / Sensitive / Deprecated */
+      --accent-rose: #F43F5E;       /* High-Severity Security */
+      --accent-violet: #8B5CF6;     /* Risky Args */
+
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+      --radius-sm: 6px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.48);
+      --shadow-lg: 0 18px 50px rgba(0, 0, 0, 0.72);
+      --toolbar-h: 56px;
+      --auditbar-h: 44px;
+      --sidebar-w: 390px;
+    }
+
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: var(--bg-canvas);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      line-height: 1.45;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button, input, textarea {
+      font-family: inherit;
+      color: inherit;
+    }
+
+    button {
+      cursor: pointer;
+      border: none;
+      background: transparent;
+    }
+
+    /* Custom Scrollbars */
+    ::-webkit-scrollbar { width: 7px; height: 7px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border-subtle); border-radius: 99px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+    /* =========================================================================
+       LAYOUT SHELL
+       ========================================================================= */
+    .app-shell {
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* =========================================================================
+       TOP TOOLBAR
+       ========================================================================= */
+    .toolbar {
+      height: var(--toolbar-h);
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 0 14px;
+      z-index: 30;
+      flex-shrink: 0;
+      overflow-x: auto;
+      overflow-y: visible;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 700;
+      font-size: 14px;
+      letter-spacing: -0.01em;
+      white-space: nowrap;
+      padding-right: 4px;
+    }
+
+    .brand-icon {
+      width: 23px;
+      height: 23px;
+      color: var(--accent-pink);
+      flex-shrink: 0;
+    }
+
+    .brand-badge {
+      font-size: 9.5px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      padding: 2px 6px;
+      border-radius: 99px;
+      background: rgba(229, 53, 171, 0.14);
+      color: var(--accent-pink);
+      border: 1px solid rgba(229, 53, 171, 0.32);
+    }
+
+    .toolbar-divider {
+      width: 1px;
+      height: 24px;
+      background: var(--border-subtle);
+      flex-shrink: 0;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 7px 11px;
+      border-radius: var(--radius-md);
+      font-size: 12.5px;
+      font-weight: 500;
+      white-space: nowrap;
+      transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+    }
+
+    .btn:active { transform: scale(0.98); }
+
+    .btn-primary {
+      background: var(--accent-pink);
+      color: #FFFFFF;
+      font-weight: 600;
+      box-shadow: 0 2px 10px rgba(229, 53, 171, 0.3);
+    }
+    .btn-primary:hover { background: #D6249B; }
+
+    .btn-secondary {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-primary);
+    }
+    .btn-secondary:hover {
+      background: var(--bg-hover);
+      border-color: var(--border-strong);
+    }
+
+    .btn-ghost {
+      color: var(--text-secondary);
+      padding: 6px 8px;
+    }
+    .btn-ghost:hover {
+      background: var(--bg-hover);
+      color: var(--text-primary);
+    }
+
+    /* Prominent Security Audit Toggle Button */
+    .btn-audit {
+      background: rgba(244, 63, 94, 0.1);
+      border: 1px solid rgba(244, 63, 94, 0.38);
+      color: #FDA4AF;
+      font-weight: 600;
+      padding: 6px 11px;
+    }
+    .btn-audit:hover {
+      background: rgba(244, 63, 94, 0.18);
+      border-color: rgba(244, 63, 94, 0.65);
+      color: #FFE4E6;
+    }
+    .btn-audit.active {
+      background: linear-gradient(135deg, #E11D48, #F59E0B);
+      border-color: #FB7185;
+      color: #FFFFFF;
+      box-shadow: 0 0 16px rgba(244, 63, 94, 0.42);
+    }
+
+    .audit-count-badge {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 99px;
+      background: rgba(11, 14, 20, 0.55);
+      color: #FFF;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+    }
+
+    .audit-kbd {
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      opacity: 0.75;
+      padding: 0 4px;
+      border-radius: 3px;
+      background: rgba(0, 0, 0, 0.28);
+    }
+
+    /* Search Box */
+    .search-wrapper {
+      position: relative;
+      width: 215px;
+      min-width: 155px;
+      flex-shrink: 0;
+    }
+
+    .search-input {
+      width: 100%;
+      background: var(--bg-canvas);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 7px 28px 7px 29px;
+      font-size: 12.5px;
+      color: var(--text-primary);
+      outline: none;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+    .search-input:focus {
+      border-color: var(--accent-pink);
+      box-shadow: 0 0 0 2px rgba(229, 53, 171, 0.2);
+    }
+
+    .search-icon {
+      position: absolute;
+      left: 9px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 14px;
+      height: 14px;
+      color: var(--text-muted);
+      pointer-events: none;
+    }
+
+    .search-kbd {
+      position: absolute;
+      right: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      color: var(--text-muted);
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-subtle);
+      border-radius: 4px;
+      padding: 1px 5px;
+      pointer-events: none;
+    }
+
+    .search-dropdown {
+      position: fixed;
+      width: 340px;
+      max-height: 380px;
+      overflow-y: auto;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-lg);
+      z-index: 120;
+      display: none;
+      padding: 4px;
+    }
+    .search-dropdown.open { display: block; }
+
+    .search-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 7px 10px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: background 0.1s ease;
+    }
+    .search-item:hover, .search-item.active { background: var(--bg-hover); }
+
+    .search-item-name {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      color: var(--text-primary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .search-item-sub {
+      color: var(--text-muted);
+      font-size: 10.5px;
+      font-family: var(--font-mono);
+      flex-shrink: 0;
+    }
+    .search-empty {
+      padding: 14px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 12px;
+    }
+
+    /* Filter Pills */
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
+    .filter-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 5px 8px;
+      border-radius: 99px;
+      font-size: 11.5px;
+      font-weight: 500;
+      background: var(--bg-canvas);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+    .filter-pill .dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      opacity: 0.4;
+      transition: opacity 0.15s ease;
+    }
+    .filter-pill.active {
+      background: var(--bg-elevated);
+      border-color: var(--border-strong);
+      color: var(--text-primary);
+    }
+    .filter-pill.active .dot { opacity: 1; }
+    .filter-pill:hover {
+      border-color: var(--border-strong);
+      color: var(--text-primary);
+    }
+
+    .toolbar-spacer { flex: 1; min-width: 6px; }
+
+    /* Stats Badge */
+    .stats-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 10px;
+      border-radius: 99px;
+      background: var(--bg-canvas);
+      border: 1px solid var(--border-subtle);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .stats-badge strong { color: var(--text-primary); font-weight: 600; }
+
+    /* Export Dropdown */
+    .dropdown-container { position: relative; flex-shrink: 0; }
+    .dropdown-menu {
+      position: fixed;
+      min-width: 200px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-md);
+      box-shadow: var(--shadow-lg);
+      padding: 5px;
+      z-index: 120;
+      display: none;
+    }
+    .dropdown-menu.open { display: block; }
+
+    .dropdown-item {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      font-size: 12.5px;
+      color: var(--text-primary);
+      text-align: left;
+      transition: background 0.12s ease;
+    }
+    .dropdown-item:hover { background: var(--bg-hover); }
+    .dropdown-item span.ext {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      color: var(--text-muted);
+      background: var(--bg-canvas);
+      padding: 1px 5px;
+      border-radius: 4px;
+    }
+
+    /* =========================================================================
+       SECURITY AUDIT SUB-BAR
+       ========================================================================= */
+    .audit-bar {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      min-height: var(--auditbar-h);
+      padding: 6px 14px;
+      background: linear-gradient(90deg, rgba(225, 29, 72, 0.13) 0%, rgba(18, 22, 31, 0.98) 45%, rgba(245, 158, 11, 0.1) 100%);
+      border-bottom: 1px solid rgba(244, 63, 94, 0.32);
+      z-index: 28;
+      flex-shrink: 0;
+      overflow-x: auto;
+    }
+    .audit-bar.open { display: flex; }
+
+    .audit-bar-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #FDA4AF;
+      white-space: nowrap;
+    }
+
+    .audit-toggle-switch {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 4px 10px;
+      border-radius: 99px;
+      background: var(--bg-canvas);
+      border: 1px solid var(--border-strong);
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      transition: all 0.15s ease;
+    }
+    .audit-toggle-switch.active {
+      background: rgba(244, 63, 94, 0.2);
+      border-color: var(--accent-rose);
+      color: #FFE4E6;
+    }
+
+    .audit-cat-group {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      flex-shrink: 0;
+    }
+
+    .audit-cat-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 9px;
+      border-radius: 99px;
+      font-size: 11px;
+      font-weight: 600;
+      background: rgba(11, 14, 20, 0.65);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      white-space: nowrap;
+      transition: all 0.15s ease;
+    }
+    .audit-cat-pill .cat-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      opacity: 0.35;
+    }
+    .audit-cat-pill.active {
+      color: var(--text-primary);
+      border-color: var(--border-strong);
+      background: var(--bg-elevated);
+    }
+    .audit-cat-pill.active .cat-dot { opacity: 1; }
+
+    /* =========================================================================
+       WORKSPACE (CANVAS + RIGHT SIDEBAR)
+       ========================================================================= */
+    .workspace {
+      flex: 1;
+      display: flex;
+      position: relative;
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    .canvas-stage {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      background: var(--bg-canvas);
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    #graph-svg {
+      width: 100%;
+      height: 100%;
+      display: block;
+      cursor: grab;
+      touch-action: none;
+    }
+    #graph-svg.panning { cursor: grabbing; }
+
+    /* SVG Graph Element Styles */
+    .graph-edge {
+      fill: none;
+      stroke: #475569;
+      stroke-width: 1.65;
+      transition: opacity 0.18s ease, stroke 0.18s ease, stroke-width 0.18s ease;
+      pointer-events: stroke;
+    }
+    .graph-edge.edge-implements {
+      stroke: var(--accent-emerald);
+      stroke-dasharray: 6 4;
+      opacity: 0.78;
+    }
+    .graph-edge.edge-union {
+      stroke: var(--accent-purple);
+      stroke-dasharray: 2.5 4;
+      stroke-linecap: round;
+      opacity: 0.82;
+    }
+    .graph-edge.edge-argument {
+      stroke: var(--accent-orange);
+      stroke-dasharray: 4 3;
+      opacity: 0.65;
+    }
+    .graph-edge.dimmed { opacity: 0.08 !important; }
+    .graph-edge.highlighted { opacity: 1 !important; stroke-width: 2.5; }
+    .graph-edge.edge-field.highlighted { stroke: var(--accent-pink); }
+
+    .graph-node {
+      cursor: grab;
+      transition: opacity 0.18s ease;
+    }
+    .graph-node.dragging { cursor: grabbing; }
+    .graph-node.dimmed { opacity: 0.14; }
+    .graph-node.audit-dimmed { opacity: 0.13; }
+
+    .node-card-bg {
+      fill: var(--bg-surface);
+      stroke: var(--border-subtle);
+      stroke-width: 1.25;
+      transition: stroke 0.15s ease, stroke-width 0.15s ease;
+    }
+    .graph-node:hover .node-card-bg { stroke: var(--border-strong); }
+    .graph-node.selected .node-card-bg { stroke: var(--accent-pink); stroke-width: 2.3; }
+    .graph-node.neighbor .node-card-bg { stroke: #64748B; stroke-width: 1.6; }
+
+    /* Audit Mode Node Borders */
+    .graph-node.audit-mutation .node-card-bg {
+      stroke: var(--accent-amber);
+      stroke-width: 2.4;
+      filter: url(#glow-amber);
+    }
+    .graph-node.audit-sensitive .node-card-bg {
+      stroke: var(--accent-rose);
+      stroke-width: 2.1;
+      filter: url(#glow-red);
+    }
+    .graph-node.audit-risky-args .node-card-bg {
+      stroke: var(--accent-cyan);
+      stroke-width: 1.8;
+    }
+    .graph-node.selected.audit-mutation .node-card-bg,
+    .graph-node.selected.audit-sensitive .node-card-bg {
+      stroke: #FFFFFF;
+      stroke-width: 2.5;
+    }
+
+    .node-title {
+      fill: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .node-kind-badge-text {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+    }
+
+    .node-field-row:hover .node-field-hover {
+      fill: rgba(255, 255, 255, 0.045);
+    }
+
+    .node-field-row.audit-row-critical .node-field-hover {
+      fill: rgba(244, 63, 94, 0.12);
+    }
+    .node-field-row.audit-row-mutation .node-field-hover {
+      fill: rgba(245, 158, 11, 0.1);
+    }
+    .node-field-row.audit-row-arg .node-field-hover {
+      fill: rgba(6, 182, 212, 0.09);
+    }
+
+    @keyframes rowPulseAnim {
+      0%, 100% { fill: rgba(229, 53, 171, 0.05); }
+      35% { fill: rgba(244, 63, 94, 0.48); }
+      70% { fill: rgba(245, 158, 11, 0.35); }
+    }
+    .node-field-row.pulsing .node-field-hover {
+      animation: rowPulseAnim 0.75s ease-in-out 3;
+    }
+
+    .node-field-name {
+      fill: #E2E8F0;
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+    }
+    .node-field-name.deprecated {
+      fill: var(--text-muted);
+      text-decoration: line-through;
+    }
+
+    .node-field-type {
+      fill: #94A3B8;
+      font-family: var(--font-mono);
+      font-size: 10.8px;
+    }
+    .node-field-type.is-relation { fill: #93C5FD; }
+
+    .node-field-arg-dot { fill: var(--accent-amber); }
+
+    .node-audit-pill-text {
+      font-family: var(--font-mono);
+      font-size: 8.5px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+    }
+
+    .node-empty-text {
+      fill: var(--text-muted);
+      font-family: var(--font-sans);
+      font-size: 11px;
+      font-style: italic;
+    }
+
+    /* Floating Bottom-Left Canvas Controls */
+    .canvas-controls {
+      position: absolute;
+      left: 16px;
+      bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-lg);
+      padding: 5px;
+      box-shadow: var(--shadow-md);
+      z-index: 20;
+    }
+
+    .ctrl-btn {
+      width: 32px;
+      height: 32px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: var(--radius-sm);
+      color: var(--text-secondary);
+      transition: background 0.12s ease, color 0.12s ease;
+    }
+    .ctrl-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+    .ctrl-btn-wide {
+      width: auto;
+      padding: 0 10px;
+      gap: 5px;
+      font-size: 11.5px;
+      font-weight: 500;
+    }
+
+    .zoom-readout {
+      min-width: 44px;
+      text-align: center;
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-secondary);
+    }
+
+    .ctrl-sep {
+      width: 1px;
+      height: 18px;
+      background: var(--border-subtle);
+      margin: 0 2px;
+    }
+
+    /* Floating Legend */
+    .canvas-legend {
+      position: absolute;
+      right: 16px;
+      bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: rgba(18, 22, 31, 0.92);
+      backdrop-filter: blur(6px);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 7px 12px;
+      font-size: 11px;
+      color: var(--text-secondary);
+      z-index: 15;
+      pointer-events: none;
+    }
+    .legend-item { display: inline-flex; align-items: center; gap: 6px; }
+    .legend-line { width: 18px; height: 2px; border-radius: 2px; }
+    .legend-line.solid { background: #64748B; }
+    .legend-line.dashed { background: repeating-linear-gradient(90deg, var(--accent-emerald) 0 5px, transparent 5px 8px); }
+    .legend-line.dotted { background: repeating-linear-gradient(90deg, var(--accent-purple) 0 3px, transparent 3px 6px); }
+    .legend-line.arg { background: repeating-linear-gradient(90deg, var(--accent-orange) 0 4px, transparent 4px 7px); }
+
+    /* =========================================================================
+       RIGHT TABBED SIDEBAR (INSPECTOR + SECURITY AUDIT)
+       ========================================================================= */
+    .sidebar {
+      width: var(--sidebar-w);
+      background: var(--bg-surface);
+      border-left: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      z-index: 25;
+      flex-shrink: 0;
+    }
+    .sidebar.collapsed { display: none; }
+
+    .sidebar-tabs {
+      display: flex;
+      align-items: center;
+      border-bottom: 1px solid var(--border-subtle);
+      background: rgba(11, 14, 20, 0.45);
+      padding: 0 8px;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
+    .sidebar-tab {
+      flex: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 11px 10px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      border-bottom: 2px solid transparent;
+      transition: color 0.15s ease, border-color 0.15s ease;
+    }
+    .sidebar-tab:hover { color: var(--text-primary); }
+    .sidebar-tab.active {
+      color: var(--text-primary);
+      border-bottom-color: var(--accent-pink);
+    }
+    .sidebar-tab.audit-tab.active {
+      color: #FDA4AF;
+      border-bottom-color: var(--accent-rose);
+    }
+
+    .sidebar-panel {
+      display: none;
+      flex: 1;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .sidebar-panel.active { display: flex; }
+
+    .inspector-header {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+
+    .inspector-title-group { min-width: 0; }
+    .inspector-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--text-primary);
+      word-break: break-word;
+      margin-bottom: 4px;
+    }
+
+    .kind-pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 99px;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .inspector-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
+    .panel-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .empty-inspector {
+      padding: 36px 20px;
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 12.5px;
+    }
+
+    .inspector-desc {
+      font-size: 12.5px;
+      color: var(--text-secondary);
+      background: var(--bg-canvas);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 10px 12px;
+      white-space: pre-wrap;
+    }
+
+    .insp-section-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .insp-section-count {
+      font-family: var(--font-mono);
+      background: var(--bg-elevated);
+      padding: 1px 6px;
+      border-radius: 99px;
+      font-size: 10px;
+      color: var(--text-secondary);
+    }
+
+    .pill-list { display: flex; flex-wrap: wrap; gap: 6px; }
+
+    .type-link-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 9px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-subtle);
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      color: #93C5FD;
+      transition: background 0.12s ease, border-color 0.12s ease;
+    }
+    .type-link-pill:hover {
+      background: var(--bg-hover);
+      border-color: var(--accent-pink);
+      color: var(--text-primary);
+    }
+
+    .field-card {
+      background: var(--bg-canvas);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 9px 11px;
+      margin-bottom: 7px;
+    }
+
+    .field-card-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .field-card-name {
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+    .field-card-name.deprecated {
+      text-decoration: line-through;
+      color: var(--text-muted);
+    }
+
+    .field-type-btn {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      color: #93C5FD;
+      padding: 1px 4px;
+      border-radius: 4px;
+    }
+    .field-type-btn.clickable:hover {
+      background: rgba(229, 53, 171, 0.18);
+      color: var(--accent-pink);
+    }
+    .field-type-btn.scalar { color: var(--text-secondary); cursor: default; }
+
+    .field-card-desc {
+      margin-top: 5px;
+      font-size: 11.5px;
+      color: var(--text-secondary);
+    }
+
+    .field-card-actions {
+      margin-top: 7px;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .btn-copy-op {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      border-radius: var(--radius-sm);
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      font-weight: 600;
+      background: rgba(99, 102, 241, 0.14);
+      border: 1px solid rgba(99, 102, 241, 0.35);
+      color: #C7D2FE;
+      transition: all 0.14s ease;
+    }
+    .btn-copy-op:hover {
+      background: rgba(229, 53, 171, 0.22);
+      border-color: var(--accent-pink);
+      color: #FFFFFF;
+    }
+
+    .deprecated-banner {
+      margin-top: 6px;
+      font-size: 11px;
+      color: #FCA5A5;
+      background: rgba(239, 68, 68, 0.12);
+      border: 1px solid rgba(239, 68, 68, 0.25);
+      border-radius: var(--radius-sm);
+      padding: 4px 8px;
+    }
+
+    .args-list {
+      margin-top: 7px;
+      padding-top: 7px;
+      border-top: 1px dashed var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .arg-row {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-secondary);
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 4px;
+    }
+    .arg-name { color: var(--accent-amber); }
+    .arg-default { color: var(--text-muted); }
+
+    .ref-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 7px 10px;
+      border-radius: var(--radius-sm);
+      background: var(--bg-canvas);
+      border: 1px solid var(--border-subtle);
+      margin-bottom: 5px;
+      cursor: pointer;
+      transition: border-color 0.12s ease, background 0.12s ease;
+    }
+    .ref-item:hover { background: var(--bg-elevated); border-color: var(--accent-pink); }
+    .ref-item-left {
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      color: var(--text-primary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .ref-item-field { color: var(--text-secondary); }
+    .ref-item-kind {
+      font-size: 10px;
+      font-family: var(--font-mono);
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    /* =========================================================================
+       SECURITY AUDIT SIDEBAR SPECIFIC STYLES
+       ========================================================================= */
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+    }
+
+    .metric-card {
+      background: var(--bg-canvas);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .metric-val {
+      font-family: var(--font-mono);
+      font-size: 20px;
+      font-weight: 700;
+      line-height: 1.15;
+    }
+    .metric-lbl {
+      font-size: 11px;
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+
+    .custom-scanner-box {
+      background: var(--bg-canvas);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .custom-scanner-input {
+      width: 100%;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-sm);
+      padding: 6px 9px;
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      color: var(--text-primary);
+      outline: none;
+    }
+    .custom-scanner-input:focus {
+      border-color: var(--accent-rose);
+    }
+
+    .audit-export-row {
+      display: flex;
+      gap: 8px;
+    }
+    .audit-export-row .btn { flex: 1; font-size: 12px; padding: 7px 8px; }
+
+    .finding-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .finding-group-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-secondary);
+      padding-bottom: 4px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+
+    .finding-item {
+      background: var(--bg-canvas);
+      border: 1px solid var(--border-subtle);
+      border-left: 3px solid var(--accent-rose);
+      border-radius: var(--radius-sm);
+      padding: 8px 10px;
+      cursor: pointer;
+      transition: background 0.12s ease, border-color 0.12s ease, transform 0.1s ease;
+    }
+    .finding-item:hover {
+      background: var(--bg-elevated);
+      border-color: var(--border-strong);
+      border-left-color: var(--accent-pink);
+    }
+
+    .finding-item.sev-critical { border-left-color: #F43F5E; }
+    .finding-item.sev-high { border-left-color: #F59E0B; }
+    .finding-item.sev-medium { border-left-color: #06B6D4; }
+    .finding-item.sev-low { border-left-color: #A855F7; }
+
+    .finding-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+      margin-bottom: 3px;
+    }
+
+    .finding-path {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-primary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .finding-path span.tname { color: var(--text-secondary); font-weight: 500; }
+
+    .sev-tag {
+      font-family: var(--font-mono);
+      font-size: 9.5px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 4px;
+      flex-shrink: 0;
+      text-transform: uppercase;
+    }
+    .sev-tag.AUTH, .sev-tag.SECRET, .sev-tag.ADMIN, .sev-tag.DESTRUCTIVE {
+      background: rgba(244, 63, 94, 0.18); color: #FDA4AF; border: 1px solid rgba(244, 63, 94, 0.35);
+    }
+    .sev-tag.MUTATION {
+      background: rgba(245, 158, 11, 0.18); color: #FCD34D; border: 1px solid rgba(245, 158, 11, 0.35);
+    }
+    .sev-tag.PII {
+      background: rgba(249, 115, 22, 0.18); color: #FDBA74; border: 1px solid rgba(249, 115, 22, 0.35);
+    }
+    .sev-tag.ARGS {
+      background: rgba(6, 182, 212, 0.16); color: #67E8F9; border: 1px solid rgba(6, 182, 212, 0.35);
+    }
+    .sev-tag.DEPRECATED, .sev-tag.CUSTOM {
+      background: rgba(168, 85, 247, 0.18); color: #D8B4FE; border: 1px solid rgba(168, 85, 247, 0.35);
+    }
+
+    .finding-reason {
+      font-size: 11px;
+      color: var(--text-secondary);
+      line-height: 1.4;
+    }
+
+    .finding-footer {
+      margin-top: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
+    }
+
+    .finding-ret {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      color: var(--text-muted);
+    }
+
+    /* =========================================================================
+       MODAL (LOAD SCHEMA)
+       ========================================================================= */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(5, 7, 12, 0.8);
+      backdrop-filter: blur(4px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      z-index: 200;
+    }
+    .modal-backdrop.open { display: flex; }
+
+    .modal {
+      width: 100%;
+      max-width: 740px;
+      max-height: 90vh;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-strong);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-lg);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .modal-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .modal-title {
+      font-size: 15px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .modal-tabs {
+      display: flex;
+      gap: 4px;
+      padding: 10px 20px 0;
+      border-bottom: 1px solid var(--border-subtle);
+      background: rgba(11, 14, 20, 0.45);
+    }
+
+    .modal-tab {
+      padding: 8px 14px;
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      border-bottom: 2px solid transparent;
+      transition: color 0.15s ease, border-color 0.15s ease;
+    }
+    .modal-tab:hover { color: var(--text-primary); }
+    .modal-tab.active {
+      color: var(--accent-pink);
+      border-bottom-color: var(--accent-pink);
+    }
+
+    .modal-body {
+      padding: 18px 20px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .tab-panel { display: none; flex-direction: column; gap: 12px; }
+    .tab-panel.active { display: flex; }
+
+    .dropzone {
+      border: 1.5px dashed var(--border-strong);
+      border-radius: var(--radius-md);
+      background: var(--bg-canvas);
+      padding: 18px;
+      text-align: center;
+      transition: border-color 0.15s ease, background 0.15s ease;
+      cursor: pointer;
+    }
+    .dropzone:hover, .dropzone.dragover {
+      border-color: var(--accent-pink);
+      background: rgba(229, 53, 171, 0.06);
+    }
+    .dropzone-title { font-weight: 600; font-size: 13px; color: var(--text-primary); margin-bottom: 4px; }
+    .dropzone-sub { font-size: 11.5px; color: var(--text-muted); }
+
+    .code-textarea {
+      width: 100%;
+      height: 240px;
+      resize: vertical;
+      background: var(--bg-canvas);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius-md);
+      padding: 12px;
+      font-family: var(--font-mono);
+      font-size: 11.5px;
+      line-height: 1.5;
+      color: var(--text-primary);
+      outline: none;
+    }
+    .code-textarea:focus { border-color: var(--accent-pink); }
+
+    .error-banner {
+      display: none;
+      padding: 10px 12px;
+      border-radius: var(--radius-md);
+      background: rgba(239, 68, 68, 0.12);
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      color: #FCA5A5;
+      font-size: 12px;
+      font-family: var(--font-mono);
+      white-space: pre-wrap;
+    }
+    .error-banner.visible { display: block; }
+
+    .query-box-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .query-hint { font-size: 12px; color: var(--text-secondary); }
+
+    .modal-footer {
+      padding: 14px 20px;
+      border-top: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    /* =========================================================================
+       TOAST NOTIFICATIONS
+       ========================================================================= */
+    .toast-container {
+      position: fixed;
+      top: calc(var(--toolbar-h) + 14px);
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 300;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      pointer-events: none;
+    }
+
+    .toast {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-strong);
+      color: var(--text-primary);
+      padding: 9px 16px;
+      border-radius: 99px;
+      font-size: 12.5px;
+      font-weight: 500;
+      box-shadow: var(--shadow-md);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      animation: toastIn 0.2s ease;
+    }
+    .toast.success { border-color: var(--accent-emerald); }
+    .toast.error { border-color: var(--accent-red); }
+    .toast.audit { border-color: var(--accent-rose); }
+
+    @keyframes toastIn {
+      from { opacity: 0; transform: translateY(-8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 960px) {
+      .stats-badge, .canvas-legend { display: none; }
+      .sidebar {
+        position: absolute;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        width: min(390px, 92vw);
+        box-shadow: var(--shadow-lg);
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <!-- ==================== TOP TOOLBAR ==================== -->
+    <header class="toolbar">
+      <div class="brand">
+        <svg class="brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <polygon points="12,2.5 20.2,7.25 20.2,16.75 12,21.5 3.8,16.75 3.8,7.25" />
+          <polygon points="12,2.5 20.2,16.75 3.8,16.75" stroke-width="1.4" />
+          <circle cx="12" cy="2.5" r="1.8" fill="currentColor" />
+          <circle cx="20.2" cy="7.25" r="1.8" fill="currentColor" />
+          <circle cx="20.2" cy="16.75" r="1.8" fill="currentColor" />
+          <circle cx="12" cy="21.5" r="1.8" fill="currentColor" />
+          <circle cx="3.8" cy="16.75" r="1.8" fill="currentColor" />
+          <circle cx="3.8" cy="7.25" r="1.8" fill="currentColor" />
+        </svg>
+        <span>GraphQL Map</span>
+        <span class="brand-badge">Offline</span>
+      </div>
+
+      <button id="btn-open-loader" class="btn btn-primary" title="Load GraphQL Introspection JSON">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+          <polyline points="17 8 12 3 7 8" />
+          <line x1="12" y1="3" x2="12" y2="15" />
+        </svg>
+        Load Schema
+      </button>
+
+      <!-- Prominent Security Audit Mode Toggle -->
+      <button id="btn-audit-mode" class="btn btn-audit" title="Toggle Security Audit Mode (Shortcut: A)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          <line x1="12" y1="8" x2="12" y2="12" />
+          <line x1="12" y1="16" x2="12.01" y2="16" />
+        </svg>
+        <span>Security Audit</span>
+        <span id="audit-total-badge" class="audit-count-badge">0</span>
+        <span class="audit-kbd">A</span>
+      </button>
+
+      <div class="toolbar-divider"></div>
+
+      <!-- Search Input -->
+      <div class="search-wrapper">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8" />
+          <line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
+        <input id="search-input" class="search-input" type="text" placeholder="Search types, fields, args..." autocomplete="off" />
+        <span class="search-kbd">/</span>
+      </div>
+
+      <div class="toolbar-divider"></div>
+
+      <!-- Kind Filter Toggles -->
+      <div class="filter-group" id="filter-group">
+        <button class="filter-pill active" data-filter="OBJECT" title="Toggle Object types">
+          <span class="dot" style="background: var(--accent-indigo);"></span>Objects
+        </button>
+        <button class="filter-pill active" data-filter="INPUT_OBJECT" title="Toggle Input types">
+          <span class="dot" style="background: var(--accent-orange);"></span>Inputs
+        </button>
+        <button class="filter-pill active" data-filter="INTERFACE" title="Toggle Interface types">
+          <span class="dot" style="background: var(--accent-emerald);"></span>Interfaces
+        </button>
+        <button class="filter-pill active" data-filter="UNION" title="Toggle Union types">
+          <span class="dot" style="background: var(--accent-purple);"></span>Unions
+        </button>
+        <button class="filter-pill active" data-filter="ENUM" title="Toggle Enum types">
+          <span class="dot" style="background: var(--accent-teal);"></span>Enums
+        </button>
+        <button class="filter-pill" data-filter="BUILTIN" title="Toggle Built-in & Scalar types">
+          <span class="dot" style="background: var(--accent-slate);"></span>Built-ins
+        </button>
+      </div>
+
+      <div class="toolbar-divider"></div>
+
+      <!-- Relations Only Toggle -->
+      <button id="btn-relations-toggle" class="btn btn-secondary" title="Toggle between all fields and relation fields only">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="8" y1="6" x2="21" y2="6" />
+          <line x1="8" y1="12" x2="21" y2="12" />
+          <line x1="8" y1="18" x2="21" y2="18" />
+          <line x1="3" y1="6" x2="3.01" y2="6" />
+          <line x1="3" y1="12" x2="3.01" y2="12" />
+          <line x1="3" y1="18" x2="3.01" y2="18" />
+        </svg>
+        <span id="relations-toggle-label">All Fields</span>
+      </button>
+
+      <div class="toolbar-spacer"></div>
+
+      <!-- Schema Stats -->
+      <div class="stats-badge">
+        <span><strong id="stat-types">0</strong> types</span>
+        <span>·</span>
+        <span><strong id="stat-edges">0</strong> edges</span>
+      </div>
+
+      <!-- Export Dropdown -->
+      <div class="dropdown-container">
+        <button id="btn-export-menu" class="btn btn-secondary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+            <polyline points="7 10 12 15 17 10" />
+            <line x1="12" y1="15" x2="12" y2="3" />
+          </svg>
+          Export
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- ==================== SECURITY AUDIT SUB-BAR ==================== -->
+    <div id="audit-bar" class="audit-bar">
+      <span class="audit-bar-label">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="8" x2="12" y2="12" />
+          <line x1="12" y1="16" x2="12.01" y2="16" />
+        </svg>
+        Audit Active
+      </span>
+
+      <button id="btn-focus-flagged" class="audit-toggle-switch" title="Dim non-flagged types so the attack surface stands out">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+          <circle cx="12" cy="12" r="3" />
+        </svg>
+        Focus Flagged Only
+      </button>
+
+      <div class="toolbar-divider"></div>
+
+      <div class="audit-cat-group" id="audit-cat-group">
+        <button class="audit-cat-pill active" data-cat="MUTATIONS">
+          <span class="cat-dot" style="background: var(--accent-amber);"></span>Mutations
+        </button>
+        <button class="audit-cat-pill active" data-cat="AUTH">
+          <span class="cat-dot" style="background: var(--accent-rose);"></span>Auth &amp; Secrets
+        </button>
+        <button class="audit-cat-pill active" data-cat="ADMIN">
+          <span class="cat-dot" style="background: #EF4444;"></span>Admin &amp; Privs
+        </button>
+        <button class="audit-cat-pill active" data-cat="PII">
+          <span class="cat-dot" style="background: var(--accent-orange);"></span>PII
+        </button>
+        <button class="audit-cat-pill active" data-cat="ARGS">
+          <span class="cat-dot" style="background: var(--accent-cyan);"></span>Risky Args
+        </button>
+        <button class="audit-cat-pill active" data-cat="DEPRECATED">
+          <span class="cat-dot" style="background: var(--accent-purple);"></span>Deprecated
+        </button>
+      </div>
+    </div>
+
+    <!-- Fixed-position Dropdowns -->
+    <div id="search-dropdown" class="search-dropdown"></div>
+    <div id="export-dropdown" class="dropdown-menu">
+      <button class="dropdown-item" data-export="svg">
+        <span>Vector Graphic</span><span class="ext">.svg</span>
+      </button>
+      <button class="dropdown-item" data-export="png">
+        <span>High-Res Image</span><span class="ext">.png</span>
+      </button>
+      <button class="dropdown-item" data-export="dot">
+        <span>Graphviz DOT</span><span class="ext">.dot</span>
+      </button>
+    </div>
+
+    <!-- ==================== WORKSPACE ==================== -->
+    <main class="workspace">
+      <div class="canvas-stage" id="canvas-stage">
+        <svg id="graph-svg" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <!-- Infinite Dot Grid Pattern -->
+            <pattern id="dot-grid" width="24" height="24" patternUnits="userSpaceOnUse">
+              <circle cx="1.5" cy="1.5" r="1.15" fill="#1E2534" />
+            </pattern>
+
+            <!-- Arrowhead Markers -->
+            <marker id="arrow-default" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+              <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill="#475569" />
+            </marker>
+            <marker id="arrow-highlight" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill="#E535AB" />
+            </marker>
+            <marker id="arrow-implements" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill="#10B981" />
+            </marker>
+            <marker id="arrow-union" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill="#A855F7" />
+            </marker>
+            <marker id="arrow-argument" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+              <path d="M 1 1.5 L 9 5 L 1 8.5 z" fill="#F97316" />
+            </marker>
+
+            <!-- Card Shadow & Audit Glow Filters -->
+            <filter id="card-shadow" x="-10%" y="-10%" width="120%" height="125%">
+              <feDropShadow dx="0" dy="6" stdDeviation="6" flood-color="#000000" flood-opacity="0.45" />
+            </filter>
+            <filter id="glow-amber" x="-18%" y="-18%" width="136%" height="136%">
+              <feDropShadow dx="0" dy="0" stdDeviation="6" flood-color="#F59E0B" flood-opacity="0.42" />
+            </filter>
+            <filter id="glow-red" x="-18%" y="-18%" width="136%" height="136%">
+              <feDropShadow dx="0" dy="0" stdDeviation="5" flood-color="#F43F5E" flood-opacity="0.38" />
+            </filter>
+          </defs>
+
+          <!-- Infinite Background Grid -->
+          <rect id="grid-bg" width="100%" height="100%" fill="url(#dot-grid)" />
+
+          <!-- Transformed Pan/Zoom World -->
+          <g id="viewport">
+            <g id="edges-layer"></g>
+            <g id="nodes-layer"></g>
+          </g>
+        </svg>
+
+        <!-- Floating Canvas Controls -->
+        <div class="canvas-controls">
+          <button id="btn-zoom-out" class="ctrl-btn" title="Zoom Out">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+          </button>
+          <span id="zoom-readout" class="zoom-readout">100%</span>
+          <button id="btn-zoom-in" class="ctrl-btn" title="Zoom In">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+          </button>
+          <div class="ctrl-sep"></div>
+          <button id="btn-fit-view" class="ctrl-btn ctrl-btn-wide" title="Fit to View (F)">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3" />
+            </svg>
+            Fit
+          </button>
+          <button id="btn-auto-layout" class="ctrl-btn ctrl-btn-wide" title="Reset Automatic Layered Layout">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="7" height="7" rx="1" />
+              <rect x="14" y="3" width="7" height="7" rx="1" />
+              <rect x="14" y="14" width="7" height="7" rx="1" />
+              <rect x="3" y="14" width="7" height="7" rx="1" />
+            </svg>
+            Auto Layout
+          </button>
+        </div>
+
+        <!-- Edge Legend -->
+        <div class="canvas-legend">
+          <span class="legend-item"><span class="legend-line solid"></span>Field Ref</span>
+          <span class="legend-item"><span class="legend-line dashed"></span>Implements</span>
+          <span class="legend-item"><span class="legend-line dotted"></span>Union Member</span>
+          <span class="legend-item"><span class="legend-line arg"></span>Input Arg</span>
+        </div>
+      </div>
+
+      <!-- ==================== RIGHT TABBED SIDEBAR ==================== -->
+      <aside id="sidebar" class="sidebar collapsed">
+        <div class="sidebar-tabs">
+          <button id="tab-btn-inspector" class="sidebar-tab active" data-side-tab="inspector">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="16" x2="12" y2="12" />
+              <line x1="12" y1="8" x2="12.01" y2="8" />
+            </svg>
+            Inspector
+          </button>
+          <button id="tab-btn-audit" class="sidebar-tab audit-tab" data-side-tab="audit">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+            </svg>
+            Security Audit
+          </button>
+          <button id="btn-sidebar-close" class="ctrl-btn" title="Close Panel (Esc)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+
+        <!-- Panel 1: Type Inspector -->
+        <div id="panel-inspector" class="sidebar-panel active">
+          <div id="inspector-header" class="inspector-header" style="display: none;">
+            <div class="inspector-title-group">
+              <h2 id="insp-name" class="inspector-title">TypeName</h2>
+              <span id="insp-kind" class="kind-pill">OBJECT</span>
+            </div>
+            <div class="inspector-actions">
+              <button id="btn-insp-focus" class="ctrl-btn" title="Center & Focus Node">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M12 2v3m0 14v3M2 12h3m14 0h3" />
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div id="inspector-body" class="panel-scroll">
+            <div class="empty-inspector">Click any type card on the canvas to inspect its fields, arguments, and reverse relations.</div>
+          </div>
+        </div>
+
+        <!-- Panel 2: Security Audit -->
+        <div id="panel-audit" class="sidebar-panel">
+          <div id="audit-body" class="panel-scroll">
+            <!-- Summary Metrics Grid -->
+            <div class="metrics-grid">
+              <div class="metric-card">
+                <span id="m-mutations" class="metric-val" style="color: var(--accent-amber);">0</span>
+                <span class="metric-lbl">Mutations</span>
+              </div>
+              <div class="metric-card">
+                <span id="m-sensitive" class="metric-val" style="color: var(--accent-rose);">0</span>
+                <span class="metric-lbl">Sensitive Fields</span>
+              </div>
+              <div class="metric-card">
+                <span id="m-args" class="metric-val" style="color: var(--accent-cyan);">0</span>
+                <span class="metric-lbl">Risky Arguments</span>
+              </div>
+              <div class="metric-card">
+                <span id="m-deprecated" class="metric-val" style="color: var(--accent-purple);">0</span>
+                <span class="metric-lbl">Deprecated Fields</span>
+              </div>
+            </div>
+
+            <!-- Custom Pattern Scanner -->
+            <div class="custom-scanner-box">
+              <div class="insp-section-title" style="margin-bottom: 2px;">
+                <span>Custom Pattern Scanner</span>
+                <span style="font-size: 9.5px; color: var(--text-muted); text-transform: none; font-weight: 500;">keywords or /regex/</span>
+              </div>
+              <input id="custom-pattern-input" class="custom-scanner-input" type="text" placeholder="e.g. tenant, webhook, internal, /export.*/" />
+            </div>
+
+            <!-- Offline Report Exports -->
+            <div class="audit-export-row">
+              <button id="btn-export-audit-md" class="btn btn-secondary">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                </svg>
+                Report (.md)
+              </button>
+              <button id="btn-export-audit-json" class="btn btn-secondary">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                </svg>
+                Findings (.json)
+              </button>
+            </div>
+
+            <!-- Categorized Clickable Findings List -->
+            <div id="audit-findings-list" style="display: flex; flex-direction: column; gap: 14px;"></div>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <!-- ==================== LOAD SCHEMA MODAL ==================== -->
+  <div id="loader-modal" class="modal-backdrop" role="dialog" aria-modal="true">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#E535AB" stroke-width="2">
+            <polygon points="12,2.5 20.2,7.25 20.2,16.75 12,21.5 3.8,16.75 3.8,7.25" />
+          </svg>
+          Load GraphQL Introspection Schema
+        </div>
+        <button id="btn-close-modal" class="ctrl-btn" title="Close (Esc)">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+
+      <div class="modal-tabs">
+        <button class="modal-tab active" data-tab="paste">Paste / Upload JSON</button>
+        <button class="modal-tab" data-tab="query">Copy Introspection Query</button>
+      </div>
+
+      <div class="modal-body">
+        <!-- Tab 1: Paste / Upload -->
+        <div id="tab-paste" class="tab-panel active">
+          <div id="dropzone" class="dropzone">
+            <div class="dropzone-title">Drop a .json introspection file here, or click to browse</div>
+            <div class="dropzone-sub">Supports { "data": { "__schema": ... } }, { "__schema": ... }, or direct schema objects</div>
+            <input id="file-input" type="file" accept=".json,application/json" style="display: none;" />
+          </div>
+
+          <textarea id="schema-textarea" class="code-textarea" spellcheck="false" placeholder='Paste your GraphQL introspection JSON response here...'></textarea>
+          <div id="loader-error" class="error-banner"></div>
+        </div>
+
+        <!-- Tab 2: Copy Introspection Query -->
+        <div id="tab-query" class="tab-panel">
+          <div class="query-box-header">
+            <p class="query-hint">Run this query against your GraphQL endpoint, then paste the JSON response in the first tab.</p>
+            <button id="btn-copy-query" class="btn btn-primary">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+              </svg>
+              Copy Query
+            </button>
+          </div>
+          <textarea id="introspection-query-text" class="code-textarea" readonly spellcheck="false"></textarea>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button id="btn-load-sample" class="btn btn-secondary">Load Enterprise SaaS Sample</button>
+        <div style="display: flex; gap: 8px;">
+          <button id="btn-cancel-modal" class="btn btn-ghost">Cancel</button>
+          <button id="btn-apply-schema" class="btn btn-primary">Visualize Schema</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <script>
+    /**
+     * =========================================================================
+     * GraphQL Schema Introspection Visualizer & Security Auditor (100% Offline)
+     * =========================================================================
+     */
+    (function () {
+      'use strict';
+
+      /* -----------------------------------------------------------------------
+         1. CONSTANTS, INTROSPECTION QUERY & SECURITY AUDIT RULES
+         ----------------------------------------------------------------------- */
+      const SVG_NS = 'http://www.w3.org/2000/svg';
+      const BUILTIN_SCALARS = new Set(['String', 'Int', 'Float', 'Boolean', 'ID']);
+
+      const KIND_STYLES = {
+        ROOT_QUERY:        { color: '#E535AB', bg: 'rgba(229, 53, 171, 0.16)', label: 'QUERY' },
+        ROOT_MUTATION:     { color: '#F59E0B', bg: 'rgba(245, 158, 11, 0.16)', label: 'MUTATION' },
+        ROOT_SUBSCRIPTION: { color: '#06B6D4', bg: 'rgba(6, 182, 212, 0.16)',  label: 'SUBSCRIPTION' },
+        OBJECT:            { color: '#6366F1', bg: 'rgba(99, 102, 241, 0.16)', label: 'OBJECT' },
+        INTERFACE:         { color: '#10B981', bg: 'rgba(16, 185, 129, 0.16)', label: 'INTERFACE' },
+        UNION:             { color: '#A855F7', bg: 'rgba(168, 85, 247, 0.16)', label: 'UNION' },
+        ENUM:              { color: '#14B8A6', bg: 'rgba(20, 184, 166, 0.16)', label: 'ENUM' },
+        INPUT_OBJECT:      { color: '#F97316', bg: 'rgba(249, 115, 22, 0.16)', label: 'INPUT' },
+        SCALAR:            { color: '#64748B', bg: 'rgba(100, 116, 139, 0.18)', label: 'SCALAR' }
+      };
+
+      const AUDIT_RULES = {
+        destructiveMutation: /(delete|remove|drop|reset|transfer|impersonate|grant|revoke|purge|destroy|terminate|wipe)/i,
+        authSecret: /(auth|token|jwt|session|password|passwd|secret|apikey|api_key|credential|oauth|mfa|totp|otp|privatekey|signing|login|logout|refresh|signin|signup)/i,
+        adminPriv: /(admin|role|permission|priv|impersonate|internal|config|debug|auditlog|audit_log|super|system|flag|featureflag|override|sudo|elevation)/i,
+        piiSensitive: /(email|phone|ssn|address|billing|card|creditcard|payment|invoice|tax|bank|iban|dob|birth|passport|salary|ipaddress|ip_address|location|ssn)/i,
+        riskyArgs: /^(id|.*id|url|uri|endpoint|callback|redirect|file|filename|filepath|path|query|sql|filter|where|limit|offset|first|last|cmd|command|exec|template|html|regex|role|scope|tenant)$/i
+      };
+
+      const STANDARD_INTROSPECTION_QUERY = `query IntrospectionQuery {
+  __schema {
+    queryType { name }
+    mutationType { name }
+    subscriptionType { name }
+    types {
+      ...FullType
+    }
+  }
+}
+
+fragment FullType on __Type {
+  kind
+  name
+  description
+  fields(includeDeprecated: true) {
+    name
+    description
+    args { ...InputValue }
+    type { ...TypeRef }
+    isDeprecated
+    deprecationReason
+  }
+  inputFields { ...InputValue }
+  interfaces { ...TypeRef }
+  enumValues(includeDeprecated: true) {
+    name
+    description
+    isDeprecated
+    deprecationReason
+  }
+  possibleTypes { ...TypeRef }
+}
+
+fragment InputValue on __InputValue {
+  name
+  description
+  type { ...TypeRef }
+  defaultValue
+}
+
+fragment TypeRef on __Type {
+  kind
+  name
+  ofType {
+    kind
+    name
+    ofType {
+      kind
+      name
+      ofType {
+        kind
+        name
+        ofType {
+          kind
+          name
+          ofType {
+            kind
+            name
+            ofType {
+              kind
+              name
+            }
+          }
+        }
+      }
+    }
+  }
+}`;
+
+      /* -----------------------------------------------------------------------
+         2. REALISTIC ENTERPRISE SAAS / E-COMMERCE SAMPLE SCHEMA
+         ----------------------------------------------------------------------- */
+      function tNamed(kind, name) { return { kind, name, ofType: null }; }
+      function tNonNull(ofType) { return { kind: 'NON_NULL', name: null, ofType }; }
+      function tList(ofType) { return { kind: 'LIST', name: null, ofType }; }
+
+      const SAMPLE_SCHEMA = {
+        data: {
+          __schema: {
+            queryType: { name: 'Query' },
+            mutationType: { name: 'Mutation' },
+            subscriptionType: { name: 'Subscription' },
+            types: [
+              {
+                kind: 'OBJECT',
+                name: 'Query',
+                description: 'Root query entry point for the AcmeCloud Enterprise SaaS & E-commerce platform.',
+                fields: [
+                  {
+                    name: 'me',
+                    description: 'Returns the currently authenticated user profile.',
+                    args: [],
+                    type: tNamed('OBJECT', 'User'),
+                    isDeprecated: false,
+                    deprecationReason: null
+                  },
+                  {
+                    name: 'user',
+                    description: 'Look up any user account by global ID.',
+                    args: [{ name: 'id', description: 'Target user ID.', type: tNonNull(tNamed('SCALAR', 'ID')), defaultValue: null }],
+                    type: tNamed('OBJECT', 'User'),
+                    isDeprecated: false,
+                    deprecationReason: null
+                  },
+                  {
+                    name: 'searchUsers',
+                    description: 'Search across organization users with dynamic filtering and pagination.',
+                    args: [
+                      { name: 'filter', description: 'Dynamic filter expression.', type: tNamed('SCALAR', 'String'), defaultValue: null },
+                      { name: 'limit', description: 'Maximum records to return.', type: tNamed('SCALAR', 'Int'), defaultValue: '50' },
+                      { name: 'offset', description: 'Pagination offset.', type: tNamed('SCALAR', 'Int'), defaultValue: '0' }
+                    ],
+                    type: tNonNull(tList(tNonNull(tNamed('OBJECT', 'User')))),
+                    isDeprecated: false,
+                    deprecationReason: null
+                  },
+                  {
+                    name: 'organization',
+                    description: 'Fetch an enterprise organization tenant by ID.',
+                    args: [{ name: 'accountId', description: 'Tenant account ID.', type: tNonNull(tNamed('SCALAR', 'ID')), defaultValue: null }],
+                    type: tNamed('OBJECT', 'Organization'),
+                    isDeprecated: false,
+                    deprecationReason: null
+                  },
+                  {
+                    name: 'order',
+                    description: 'Retrieve an e-commerce order by order ID.',
+                    args: [{ name: 'id', description: 'Order identifier.', type: tNonNull(tNamed('SCALAR', 'ID')), defaultValue: null }],
+                    type: tNamed('OBJECT', 'Order'),
+                    isDeprecated: false,
+                    deprecationReason: null
+                  },
+                  {
+                    name: 'exportAuditLogs',
+                    description: 'Export security and compliance audit logs for an organization.',
+                    args: [
+                      { name: 'accountId', description: 'Target tenant ID.', type: tNonNull(tNamed('SCALAR', 'ID')), defaultValue: null },
+                      { name: 'where', description: 'Filter clause for audit events.', type: tNamed('INPUT_OBJECT', 'AuditFilterInput'), defaultValue: null },
+                      { name: 'limit', description: 'Max log entries.', type: tNamed('SCALAR', 'Int'), defaultValue: '500' }
+                    ],
+                    type: tNonNull(tList(tNonNull(tNamed('OBJECT', 'AuditEvent')))),
+                    isDeprecated: false,
+                    deprecationReason: null
+                  },
+                  {
+                    name: 'internalConfig',
+                    description: 'Returns internal runtime feature flags and service endpoints.',
+                    args: [{ name: 'environment', description: 'Target env name.', type: tNamed('SCALAR', 'String'), defaultValue: '"prod"' }],
+                    type: tNamed('OBJECT', 'InternalConfig'),
+                    isDeprecated: false,
+                    deprecationReason: null
+                  },
+                  {
+                    name: 'searchCatalog',
+                    description: 'Unified search across products, users, and orders.',
+                    args: [{ name: 'query', description: 'Raw search query string.', type: tNonNull(tNamed('SCALAR', 'String')), defaultValue: null }],
+                    type: tNonNull(tList(tNonNull(tNamed('UNION', 'SearchResult')))),
+                    isDeprecated: false,
+                    deprecationReason: null
+                  }
+                ],
+                interfaces: []
+              },
+              {
+                kind: 'OBJECT',
+                name: 'Mutation',
+                description: 'Root write operations for authentication, billing, administration, and commerce.',
+                fields: [
+                  {
+                    name: 'login',
+                    description: 'Authenticate with email and password to issue access & refresh tokens.',
+                    args: [{ name: 'input', description: 'Login credentials.', type: tNonNull(tNamed('INPUT_OBJECT', 'LoginInput')), defaultValue: null }],
+                    type: tNonNull(tNamed('OBJECT', 'AuthPayload')),
+                    isDeprecated: false,
+                    deprecationReason: null
+                  },
+                  {
+                    name: 'refreshToken',
+                    description: 'Exchange a refresh token for a fresh JWT access token.',
+                    args: [{ name: 'token', description: 'Refresh token string.', type: tNonNull(tNamed('SCALAR', 'String')), defaultValue: null }],
+                    type: tNonNull(tNamed('OBJECT', 'AuthPayload')),
+                    isDeprecated: false,
+                    deprecationReason: null
+                  },
+                  {
+                    name: 'resetPassword',
+                    description: 'Initiate or complete a password reset flow with optional redirect.',
+                    args: [
+                      { name: 'email', description: 'Account email.', type: tNonNull(tNamed('SCALAR', 'String')), defaultValue: null },
+                      { name: 'redirect', description: 'Post-reset redirect URL.', type: tNamed('SCALAR', 'String'), defaultValue: null }
+                    ],
+                    type: tNonNull(tNamed('SCALAR', 'Boolean')),
+                    isDeprecated: false,
+                    deprecationReason: null
+                  },
+                  {
+                    name: 'impersonateUser',
+                    description: 'Support & super-admin action to issue a session token as another user.',
+                    args: [{ name: 'userId', description: 'Target user ID to impersonate.', type: tNonNull(tNamed('SCALAR', 'ID')), defaultValue: null }],
+                    type: tNonNull(tNamed('OBJECT', 'AuthPayload')),
+                    isDeprecated: false,
+                    deprecationReason: null
+                  },
+                  {
+                    name: 'updateUserRole',
+                    description: 'Promote or modify RBAC role assignments for a user.',
+                    args: [
+                      { name: 'userId', description: 'Target user ID.', type: tNonNull(tNamed('SCALAR', 'ID')), defaultValue: null },
+                      { name: 'role', description: 'New RBAC role.', type: tNonNull(tNamed('ENUM', 'UserRole')), defaultValue: null }
+                    ],
+                    type: tNonNull(tNamed('OBJECT', 'User')),
+                    isDeprecated: false,
+                    deprecationReason: null
+                  },
+                  {
+                    name: 'deleteAccount',
+                    description: 'Permanently delete a user account and revoke active sessions.',
+                    args: [
+                      { name: 'userId', description: 'User ID to delete.', type: tNonNull(tNamed('SCALAR', 'ID')), defaultValue: null },
+                      { name: 'hardDelete', description: 'Bypass soft-delete retention.', type: tNamed('SCALAR', 'Boolean'), defaultValue: 'false' }
+                    ],
+                    type: tNonNull(tNamed('SCALAR', 'Boolean')),
+                    isDeprecated: false,
+                    deprecationReason: null
+                  },
+                  {
+                    name: 'uploadAvatar',
+                    description: 'Fetch or upload a user profile avatar from a remote URL or file path.',
+                    args: [
+                      { name: 'url', description: 'Remote image URL to fetch.', type: tNamed('SCALAR', 'String'), defaultValue: null },
+                      { name: 'file', description: 'Uploaded binary file reference.', type: tNamed('SCALAR', 'Upload'), defaultValue: null }
+                    ],
+                    type: tNonNull(tNamed('OBJECT', 'User')),
+                    isDeprecated: false,
+                    deprecationReason: null
+                  },
+                  {
+                    name: 'createOrder',
+                    description: 'Submit a new e-commerce order for checkout.',
+                    args: [{ name: 'input', description: 'Order line items and billing.', type: tNonNull(tNamed('INPUT_OBJECT', 'CreateOrderInput')), defaultValue: null }],
+                    type: tNonNull(tNamed('OBJECT', 'Order')),
+                    isDeprecated: false,
+                    deprecationReason: null
+                  },
+                  {
+                    name: 'legacyTokenLogin',
+                    description: 'Deprecated v1 token exchange endpoint.',
+                    args: [{ name: 'token', description: 'Legacy static token.', type: tNonNull(tNamed('SCALAR', 'String')), defaultValue: null }],
+                    type: tNamed('OBJECT', 'AuthPayload'),
+                    isDeprecated: true,
+                    deprecationReason: 'Replaced by OAuth2 / login mutation. Scheduled for removal.'
+                  }
+                ],
+                interfaces: []
+              },
+              {
+                kind: 'OBJECT',
+                name: 'Subscription',
+                description: 'Real-time WebSocket event streams.',
+                fields: [
+                  {
+                    name: 'orderStatusChanged',
+                    description: 'Subscribe to live updates for a specific order.',
+                    args: [{ name: 'id', description: 'Order ID.', type: tNonNull(tNamed('SCALAR', 'ID')), defaultValue: null }],
+                    type: tNonNull(tNamed('OBJECT', 'Order')),
+                    isDeprecated: false,
+                    deprecationReason: null
+                  },
+                  {
+                    name: 'auditEventStream',
+                    description: 'Live stream of administrative security events.',
+                    args: [{ name: 'accountId', description: 'Tenant account ID.', type: tNonNull(tNamed('SCALAR', 'ID')), defaultValue: null }],
+                    type: tNonNull(tNamed('OBJECT', 'AuditEvent')),
+                    isDeprecated: false,
+                    deprecationReason: null
+                  }
+                ],
+                interfaces: []
+              },
+              {
+                kind: 'INTERFACE',
+                name: 'Node',
+                description: 'Standard Relay-style globally identifiable object.',
+                fields: [
+                  { name: 'id', description: 'Globally unique identifier.', args: [], type: tNonNull(tNamed('SCALAR', 'ID')), isDeprecated: false, deprecationReason: null },
+                  { name: 'createdAt', description: 'ISO-8601 creation timestamp.', args: [], type: tNonNull(tNamed('SCALAR', 'DateTime')), isDeprecated: false, deprecationReason: null }
+                ],
+                possibleTypes: [
+                  tNamed('OBJECT', 'User'),
+                  tNamed('OBJECT', 'Organization'),
+                  tNamed('OBJECT', 'Order'),
+                  tNamed('OBJECT', 'Product'),
+                  tNamed('OBJECT', 'AuditEvent')
+                ]
+              },
+              {
+                kind: 'OBJECT',
+                name: 'User',
+                description: 'An authenticated account belonging to an enterprise organization.',
+                fields: [
+                  { name: 'id', description: null, args: [], type: tNonNull(tNamed('SCALAR', 'ID')), isDeprecated: false, deprecationReason: null },
+                  { name: 'createdAt', description: null, args: [], type: tNonNull(tNamed('SCALAR', 'DateTime')), isDeprecated: false, deprecationReason: null },
+                  { name: 'email', description: 'Primary user email address (PII).', args: [], type: tNonNull(tNamed('SCALAR', 'String')), isDeprecated: false, deprecationReason: null },
+                  { name: 'phone', description: 'SMS / MFA phone number (PII).', args: [], type: tNamed('SCALAR', 'String'), isDeprecated: false, deprecationReason: null },
+                  { name: 'role', description: 'Assigned RBAC role.', args: [], type: tNonNull(tNamed('ENUM', 'UserRole')), isDeprecated: false, deprecationReason: null },
+                  { name: 'apiKey', description: 'Personal programmatic API secret key.', args: [], type: tNamed('SCALAR', 'String'), isDeprecated: false, deprecationReason: null },
+                  { name: 'legacyAuthToken', description: 'Deprecated v1 bearer token stored on user record.', args: [], type: tNamed('SCALAR', 'String'), isDeprecated: true, deprecationReason: 'Use AuthPayload.accessToken instead.' },
+                  { name: 'billingInfo', description: 'Saved payment methods and billing address.', args: [], type: tNamed('OBJECT', 'BillingInfo'), isDeprecated: false, deprecationReason: null },
+                  { name: 'organization', description: 'Parent enterprise tenant.', args: [], type: tNamed('OBJECT', 'Organization'), isDeprecated: false, deprecationReason: null },
+                  { name: 'orders', description: 'Orders placed by this user.', args: [{ name: 'limit', description: null, type: tNamed('SCALAR', 'Int'), defaultValue: '20' }], type: tNonNull(tList(tNonNull(tNamed('OBJECT', 'Order')))), isDeprecated: false, deprecationReason: null }
+                ],
+                interfaces: [tNamed('INTERFACE', 'Node')]
+              },
+              {
+                kind: 'OBJECT',
+                name: 'AuthPayload',
+                description: 'Returned on successful authentication or impersonation.',
+                fields: [
+                  { name: 'accessToken', description: 'Short-lived signed JWT.', args: [], type: tNonNull(tNamed('SCALAR', 'String')), isDeprecated: false, deprecationReason: null },
+                  { name: 'refreshToken', description: 'Long-lived refresh token.', args: [], type: tNonNull(tNamed('SCALAR', 'String')), isDeprecated: false, deprecationReason: null },
+                  { name: 'expiresIn', description: 'Token TTL in seconds.', args: [], type: tNonNull(tNamed('SCALAR', 'Int')), isDeprecated: false, deprecationReason: null },
+                  { name: 'user', description: 'Authenticated user record.', args: [], type: tNonNull(tNamed('OBJECT', 'User')), isDeprecated: false, deprecationReason: null }
+                ],
+                interfaces: []
+              },
+              {
+                kind: 'OBJECT',
+                name: 'Organization',
+                description: 'Multi-tenant enterprise workspace.',
+                fields: [
+                  { name: 'id', description: null, args: [], type: tNonNull(tNamed('SCALAR', 'ID')), isDeprecated: false, deprecationReason: null },
+                  { name: 'createdAt', description: null, args: [], type: tNonNull(tNamed('SCALAR', 'DateTime')), isDeprecated: false, deprecationReason: null },
+                  { name: 'name', description: 'Organization display name.', args: [], type: tNonNull(tNamed('SCALAR', 'String')), isDeprecated: false, deprecationReason: null },
+                  { name: 'ssoSecret', description: 'SAML / OIDC client secret for enterprise SSO.', args: [], type: tNamed('SCALAR', 'String'), isDeprecated: false, deprecationReason: null },
+                  { name: 'webhookUrl', description: 'Outbound webhook destination.', args: [], type: tNamed('SCALAR', 'String'), isDeprecated: false, deprecationReason: null },
+                  { name: 'members', description: 'Users within this tenant.', args: [], type: tNonNull(tList(tNonNull(tNamed('OBJECT', 'User')))), isDeprecated: false, deprecationReason: null }
+                ],
+                interfaces: [tNamed('INTERFACE', 'Node')]
+              },
+              {
+                kind: 'OBJECT',
+                name: 'BillingInfo',
+                description: 'Sensitive payment and invoicing details.',
+                fields: [
+                  { name: 'cardLast4', description: 'Last 4 digits of payment card.', args: [], type: tNonNull(tNamed('SCALAR', 'String')), isDeprecated: false, deprecationReason: null },
+                  { name: 'billingAddress', description: 'Physical street billing address.', args: [], type: tNamed('SCALAR', 'String'), isDeprecated: false, deprecationReason: null },
+                  { name: 'taxId', description: 'VAT / EIN / SSN tax identifier.', args: [], type: tNamed('SCALAR', 'String'), isDeprecated: false, deprecationReason: null },
+                  { name: 'stripeCustomerId', description: 'External payment processor ID.', args: [], type: tNamed('SCALAR', 'String'), isDeprecated: false, deprecationReason: null }
+                ],
+                interfaces: []
+              },
+              {
+                kind: 'OBJECT',
+                name: 'Order',
+                description: 'An e-commerce purchase transaction.',
+                fields: [
+                  { name: 'id', description: null, args: [], type: tNonNull(tNamed('SCALAR', 'ID')), isDeprecated: false, deprecationReason: null },
+                  { name: 'createdAt', description: null, args: [], type: tNonNull(tNamed('SCALAR', 'DateTime')), isDeprecated: false, deprecationReason: null },
+                  { name: 'status', description: 'Fulfillment status.', args: [], type: tNonNull(tNamed('ENUM', 'OrderStatus')), isDeprecated: false, deprecationReason: null },
+                  { name: 'totalAmount', description: 'Order total in cents.', args: [], type: tNonNull(tNamed('SCALAR', 'Int')), isDeprecated: false, deprecationReason: null },
+                  { name: 'customer', description: 'Purchasing user.', args: [], type: tNonNull(tNamed('OBJECT', 'User')), isDeprecated: false, deprecationReason: null },
+                  { name: 'items', description: 'Purchased catalog products.', args: [], type: tNonNull(tList(tNonNull(tNamed('OBJECT', 'Product')))), isDeprecated: false, deprecationReason: null }
+                ],
+                interfaces: [tNamed('INTERFACE', 'Node')]
+              },
+              {
+                kind: 'OBJECT',
+                name: 'Product',
+                description: 'Catalog SKU available for purchase.',
+                fields: [
+                  { name: 'id', description: null, args: [], type: tNonNull(tNamed('SCALAR', 'ID')), isDeprecated: false, deprecationReason: null },
+                  { name: 'createdAt', description: null, args: [], type: tNonNull(tNamed('SCALAR', 'DateTime')), isDeprecated: false, deprecationReason: null },
+                  { name: 'sku', description: null, args: [], type: tNonNull(tNamed('SCALAR', 'String')), isDeprecated: false, deprecationReason: null },
+                  { name: 'name', description: null, args: [], type: tNonNull(tNamed('SCALAR', 'String')), isDeprecated: false, deprecationReason: null },
+                  { name: 'priceCents', description: null, args: [], type: tNonNull(tNamed('SCALAR', 'Int')), isDeprecated: false, deprecationReason: null }
+                ],
+                interfaces: [tNamed('INTERFACE', 'Node')]
+              },
+              {
+                kind: 'OBJECT',
+                name: 'AuditEvent',
+                description: 'Immutable security audit trail entry.',
+                fields: [
+                  { name: 'id', description: null, args: [], type: tNonNull(tNamed('SCALAR', 'ID')), isDeprecated: false, deprecationReason: null },
+                  { name: 'createdAt', description: null, args: [], type: tNonNull(tNamed('SCALAR', 'DateTime')), isDeprecated: false, deprecationReason: null },
+                  { name: 'action', description: 'Event action name.', args: [], type: tNonNull(tNamed('SCALAR', 'String')), isDeprecated: false, deprecationReason: null },
+                  { name: 'ipAddress', description: 'Source client IP address.', args: [], type: tNamed('SCALAR', 'String'), isDeprecated: false, deprecationReason: null },
+                  { name: 'actor', description: 'User who triggered the event.', args: [], type: tNamed('OBJECT', 'User'), isDeprecated: false, deprecationReason: null }
+                ],
+                interfaces: [tNamed('INTERFACE', 'Node')]
+              },
+              {
+                kind: 'OBJECT',
+                name: 'InternalConfig',
+                description: 'Internal service configuration exposed to privileged admin tools.',
+                fields: [
+                  { name: 'debugMode', description: 'Whether verbose stack traces are enabled.', args: [], type: tNonNull(tNamed('SCALAR', 'Boolean')), isDeprecated: false, deprecationReason: null },
+                  { name: 'internalWebhookSecret', description: 'HMAC signing key for internal webhooks.', args: [], type: tNamed('SCALAR', 'String'), isDeprecated: false, deprecationReason: null },
+                  { name: 'adminOverrideFlag', description: 'Emergency admin bypass toggle.', args: [], type: tNonNull(tNamed('SCALAR', 'Boolean')), isDeprecated: true, deprecationReason: 'Legacy break-glass flag.' }
+                ],
+                interfaces: []
+              },
+              {
+                kind: 'UNION',
+                name: 'SearchResult',
+                description: 'Polymorphic search result across core domain objects.',
+                possibleTypes: [
+                  tNamed('OBJECT', 'User'),
+                  tNamed('OBJECT', 'Product'),
+                  tNamed('OBJECT', 'Order')
+                ]
+              },
+              {
+                kind: 'ENUM',
+                name: 'UserRole',
+                description: 'Role-Based Access Control levels.',
+                enumValues: [
+                  { name: 'VIEWER', description: 'Read-only workspace access.', isDeprecated: false, deprecationReason: null },
+                  { name: 'MEMBER', description: 'Standard tenant member.', isDeprecated: false, deprecationReason: null },
+                  { name: 'ADMIN', description: 'Tenant administrator.', isDeprecated: false, deprecationReason: null },
+                  { name: 'SUPER_ADMIN', description: 'Global platform operator.', isDeprecated: false, deprecationReason: null }
+                ]
+              },
+              {
+                kind: 'ENUM',
+                name: 'OrderStatus',
+                description: 'Lifecycle states of an order.',
+                enumValues: [
+                  { name: 'PENDING', description: null, isDeprecated: false, deprecationReason: null },
+                  { name: 'PAID', description: null, isDeprecated: false, deprecationReason: null },
+                  { name: 'SHIPPED', description: null, isDeprecated: false, deprecationReason: null },
+                  { name: 'REFUNDED', description: null, isDeprecated: false, deprecationReason: null }
+                ]
+              },
+              {
+                kind: 'INPUT_OBJECT',
+                name: 'LoginInput',
+                description: 'Credentials for password authentication.',
+                inputFields: [
+                  { name: 'email', description: null, type: tNonNull(tNamed('SCALAR', 'String')), defaultValue: null },
+                  { name: 'password', description: null, type: tNonNull(tNamed('SCALAR', 'String')), defaultValue: null },
+                  { name: 'otpCode', description: 'Optional 2FA TOTP code.', type: tNamed('SCALAR', 'String'), defaultValue: null }
+                ]
+              },
+              {
+                kind: 'INPUT_OBJECT',
+                name: 'CreateOrderInput',
+                description: 'Checkout payload for creating an order.',
+                inputFields: [
+                  { name: 'productIds', description: null, type: tNonNull(tList(tNonNull(tNamed('SCALAR', 'ID')))), defaultValue: null },
+                  { name: 'couponCode', description: null, type: tNamed('SCALAR', 'String'), defaultValue: null }
+                ]
+              },
+              {
+                kind: 'INPUT_OBJECT',
+                name: 'AuditFilterInput',
+                description: 'Filter criteria for exporting security audit events.',
+                inputFields: [
+                  { name: 'actorId', description: null, type: tNamed('SCALAR', 'ID'), defaultValue: null },
+                  { name: 'actionContains', description: null, type: tNamed('SCALAR', 'String'), defaultValue: null }
+                ]
+              },
+              // Custom & Built-in Scalars
+              { kind: 'SCALAR', name: 'DateTime', description: 'ISO-8601 UTC timestamp.' },
+              { kind: 'SCALAR', name: 'Upload', description: 'Multipart binary file upload.' },
+              { kind: 'SCALAR', name: 'ID', description: 'Unique identifier scalar.' },
+              { kind: 'SCALAR', name: 'String', description: 'UTF-8 character sequence.' },
+              { kind: 'SCALAR', name: 'Int', description: 'Signed 32-bit integer.' },
+              { kind: 'SCALAR', name: 'Float', description: 'Signed double-precision floating-point value.' },
+              { kind: 'SCALAR', name: 'Boolean', description: 'true or false.' }
+            ]
+          }
+        }
+      };
+
+      /* -----------------------------------------------------------------------
+         3. APPLICATION STATE
+         ----------------------------------------------------------------------- */
+      const state = {
+        rawSchema: null,
+        parsed: null,             // { schema, typesByName, roots, referencedBy }
+        nodes: new Map(),         // name -> { id, type, displayKind, x, y, width, height, rows, level }
+        edges: [],                // [{ id, source, target, kind, rowIndex, label }]
+        filters: {
+          OBJECT: true,
+          INPUT_OBJECT: true,
+          INTERFACE: true,
+          UNION: true,
+          ENUM: true,
+          BUILTIN: false
+        },
+        relationsOnly: false,
+        selectedNodeId: null,
+        activeSideTab: 'inspector', // 'inspector' | 'audit'
+        sidebarOpen: false,
+
+        // Security Audit Mode State
+        auditMode: false,
+        auditFocusFlagged: false,
+        auditCategories: {
+          MUTATIONS: true,
+          AUTH: true,
+          ADMIN: true,
+          PII: true,
+          ARGS: true,
+          DEPRECATED: true
+        },
+        customPatternRaw: '',
+        auditData: {
+          findings: [],           // [{ id, typeName, fieldName, category, badge, severity, reason, returnType, args, isRootOp, opType }]
+          nodeFlags: new Map(),   // typeName -> { isMutation, hasSensitive, hasRiskyArgs, categories: Set }
+          fieldFlags: new Map(),  // "Type.field" -> { badges: Set, categories: Set, severity, riskyArgs: [] }
+          metrics: { mutations: 0, sensitive: 0, riskyArgs: 0, deprecated: 0, total: 0 }
+        },
+
+        // Viewport & Interaction State
+        transform: { x: 0, y: 0, scale: 1 },
+        isPanning: false,
+        panStart: { x: 0, y: 0, tx: 0, ty: 0, moved: false },
+        dragNode: null,
+        pinchDist: null,
+        searchActiveIdx: -1,
+        searchResults: []
+      };
+
+      /* -----------------------------------------------------------------------
+         4. DOM REFERENCES
+         ----------------------------------------------------------------------- */
+      const dom = {
+        svg: document.getElementById('graph-svg'),
+        viewport: document.getElementById('viewport'),
+        edgesLayer: document.getElementById('edges-layer'),
+        nodesLayer: document.getElementById('nodes-layer'),
+        dotGrid: document.getElementById('dot-grid'),
+        canvasStage: document.getElementById('canvas-stage'),
+
+        zoomReadout: document.getElementById('zoom-readout'),
+        btnZoomIn: document.getElementById('btn-zoom-in'),
+        btnZoomOut: document.getElementById('btn-zoom-out'),
+        btnFitView: document.getElementById('btn-fit-view'),
+        btnAutoLayout: document.getElementById('btn-auto-layout'),
+
+        searchInput: document.getElementById('search-input'),
+        searchDropdown: document.getElementById('search-dropdown'),
+        filterGroup: document.getElementById('filter-group'),
+        btnRelationsToggle: document.getElementById('btn-relations-toggle'),
+        relationsToggleLabel: document.getElementById('relations-toggle-label'),
+        statTypes: document.getElementById('stat-types'),
+        statEdges: document.getElementById('stat-edges'),
+
+        btnAuditMode: document.getElementById('btn-audit-mode'),
+        auditTotalBadge: document.getElementById('audit-total-badge'),
+        auditBar: document.getElementById('audit-bar'),
+        btnFocusFlagged: document.getElementById('btn-focus-flagged'),
+        auditCatGroup: document.getElementById('audit-cat-group'),
+
+        btnExportMenu: document.getElementById('btn-export-menu'),
+        exportDropdown: document.getElementById('export-dropdown'),
+
+        sidebar: document.getElementById('sidebar'),
+        btnSidebarClose: document.getElementById('btn-sidebar-close'),
+        tabBtnInspector: document.getElementById('tab-btn-inspector'),
+        tabBtnAudit: document.getElementById('tab-btn-audit'),
+        panelInspector: document.getElementById('panel-inspector'),
+        panelAudit: document.getElementById('panel-audit'),
+
+        inspectorHeader: document.getElementById('inspector-header'),
+        inspName: document.getElementById('insp-name'),
+        inspKind: document.getElementById('insp-kind'),
+        inspBody: document.getElementById('inspector-body'),
+        btnInspFocus: document.getElementById('btn-insp-focus'),
+
+        mMutations: document.getElementById('m-mutations'),
+        mSensitive: document.getElementById('m-sensitive'),
+        mArgs: document.getElementById('m-args'),
+        mDeprecated: document.getElementById('m-deprecated'),
+        customPatternInput: document.getElementById('custom-pattern-input'),
+        btnExportAuditMd: document.getElementById('btn-export-audit-md'),
+        btnExportAuditJson: document.getElementById('btn-export-audit-json'),
+        auditFindingsList: document.getElementById('audit-findings-list'),
+
+        loaderModal: document.getElementById('loader-modal'),
+        btnOpenLoader: document.getElementById('btn-open-loader'),
+        btnCloseModal: document.getElementById('btn-close-modal'),
+        btnCancelModal: document.getElementById('btn-cancel-modal'),
+        btnApplySchema: document.getElementById('btn-apply-schema'),
+        btnLoadSample: document.getElementById('btn-load-sample'),
+        schemaTextarea: document.getElementById('schema-textarea'),
+        loaderError: document.getElementById('loader-error'),
+        dropzone: document.getElementById('dropzone'),
+        fileInput: document.getElementById('file-input'),
+        queryTextarea: document.getElementById('introspection-query-text'),
+        btnCopyQuery: document.getElementById('btn-copy-query'),
+
+        toastContainer: document.getElementById('toast-container')
+      };
+
+      /* -----------------------------------------------------------------------
+         5. UTILITY HELPERS
+         ----------------------------------------------------------------------- */
+      function showToast(message, type = 'info') {
+        const el = document.createElement('div');
+        el.className = `toast ${type}`;
+        el.textContent = message;
+        dom.toastContainer.appendChild(el);
+        setTimeout(() => {
+          el.style.opacity = '0';
+          el.style.transition = 'opacity 0.25s ease';
+          setTimeout(() => el.remove(), 260);
+        }, 2600);
+      }
+
+      function copyTextToClipboard(text, successMsg = 'Copied to clipboard!') {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        ta.setSelectionRange(0, ta.value.length);
+        let ok = false;
+        try {
+          ok = document.execCommand('copy');
+        } catch (_) {
+          ok = false;
+        }
+        ta.remove();
+        if (ok) {
+          showToast(successMsg, 'success');
+        } else {
+          showToast('Copy failed — browser restricted clipboard access.', 'error');
+        }
+      }
+
+      function escapeHtml(str) {
+        return String(str)
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;');
+      }
+
+      function formatTypeRef(typeRef) {
+        if (!typeRef) return 'Unknown';
+        if (typeRef.kind === 'NON_NULL') return `${formatTypeRef(typeRef.ofType)}!`;
+        if (typeRef.kind === 'LIST') return `[${formatTypeRef(typeRef.ofType)}]`;
+        return typeRef.name || 'Unknown';
+      }
+
+      function unwrapType(typeRef) {
+        let cur = typeRef;
+        while (cur && (cur.kind === 'NON_NULL' || cur.kind === 'LIST')) {
+          cur = cur.ofType;
+        }
+        return cur ? { name: cur.name, kind: cur.kind } : { name: null, kind: null };
+      }
+
+      function isBuiltInType(t) {
+        if (!t || !t.name) return true;
+        if (t.name.startsWith('__')) return true;
+        if (t.kind === 'SCALAR' && BUILTIN_SCALARS.has(t.name)) return true;
+        return false;
+      }
+
+      function getDisplayKind(type, roots) {
+        if (type.name === roots.query) return 'ROOT_QUERY';
+        if (type.name === roots.mutation) return 'ROOT_MUTATION';
+        if (type.name === roots.subscription) return 'ROOT_SUBSCRIPTION';
+        return type.kind || 'OBJECT';
+      }
+
+      function createSvgEl(tag, attrs = {}) {
+        const el = document.createElementNS(SVG_NS, tag);
+        for (const [k, v] of Object.entries(attrs)) {
+          el.setAttribute(k, v);
+        }
+        return el;
+      }
+
+      function truncateText(text, maxChars) {
+        if (!text) return '';
+        return text.length > maxChars ? text.slice(0, maxChars - 1) + '…' : text;
+      }
+
+      function downloadBlob(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+
+      /* -----------------------------------------------------------------------
+         6. SCHEMA PARSER & VALIDATOR
+         ----------------------------------------------------------------------- */
+      function extractSchemaObject(json) {
+        if (!json || typeof json !== 'object') {
+          throw new Error('Input must be a valid JSON object.');
+        }
+        let schema = null;
+        if (json.data && json.data.__schema) schema = json.data.__schema;
+        else if (json.__schema) schema = json.__schema;
+        else if (Array.isArray(json.types)) schema = json;
+
+        if (!schema || !Array.isArray(schema.types)) {
+          throw new Error(
+            'Could not find "__schema.types" array. Expected { "data": { "__schema": { "types": [...] } } }, { "__schema": { "types": [...] } }, or { "types": [...] }.'
+          );
+        }
+        return schema;
+      }
+
+      function parseSchema(rawJson) {
+        const schema = extractSchemaObject(rawJson);
+        const roots = {
+          query: schema.queryType ? schema.queryType.name : null,
+          mutation: schema.mutationType ? schema.mutationType.name : null,
+          subscription: schema.subscriptionType ? schema.subscriptionType.name : null
+        };
+
+        const typesByName = new Map();
+        const referencedBy = new Map();
+
+        for (const t of schema.types) {
+          if (!t || !t.name) continue;
+          typesByName.set(t.name, t);
+          referencedBy.set(t.name, []);
+        }
+
+        const addRef = (targetName, refObj) => {
+          if (!targetName || !referencedBy.has(targetName)) return;
+          referencedBy.get(targetName).push(refObj);
+        };
+
+        for (const t of typesByName.values()) {
+          if (Array.isArray(t.fields)) {
+            for (const f of t.fields) {
+              addRef(unwrapType(f.type).name, {
+                sourceType: t.name,
+                fieldName: f.name,
+                kind: 'field',
+                typeStr: formatTypeRef(f.type)
+              });
+              if (Array.isArray(f.args)) {
+                for (const arg of f.args) {
+                  addRef(unwrapType(arg.type).name, {
+                    sourceType: t.name,
+                    fieldName: `${f.name}(${arg.name})`,
+                    kind: 'argument',
+                    typeStr: formatTypeRef(arg.type)
+                  });
+                }
+              }
+            }
+          }
+          if (Array.isArray(t.inputFields)) {
+            for (const inf of t.inputFields) {
+              addRef(unwrapType(inf.type).name, {
+                sourceType: t.name,
+                fieldName: inf.name,
+                kind: 'inputField',
+                typeStr: formatTypeRef(inf.type)
+              });
+            }
+          }
+          if (Array.isArray(t.interfaces)) {
+            for (const iface of t.interfaces) {
+              if (iface && iface.name) {
+                addRef(iface.name, {
+                  sourceType: t.name,
+                  fieldName: 'implements',
+                  kind: 'implements',
+                  typeStr: iface.name
+                });
+              }
+            }
+          }
+          if (Array.isArray(t.possibleTypes) && t.kind === 'UNION') {
+            for (const pt of t.possibleTypes) {
+              if (pt && pt.name) {
+                addRef(pt.name, {
+                  sourceType: t.name,
+                  fieldName: 'union member',
+                  kind: 'union',
+                  typeStr: pt.name
+                });
+              }
+            }
+          }
+        }
+
+        return { schema, typesByName, roots, referencedBy };
+      }
+
+      /* -----------------------------------------------------------------------
+         7. SECURITY AUDIT ENGINE
+         ----------------------------------------------------------------------- */
+      function compileCustomPatterns(raw) {
+        if (!raw || !raw.trim()) return [];
+        const parts = raw.split(',').map(s => s.trim()).filter(Boolean);
+        const matchers = [];
+        for (const p of parts) {
+          if (p.startsWith('/') && p.endsWith('/') && p.length > 2) {
+            try {
+              matchers.push({ label: p, regex: new RegExp(p.slice(1, -1), 'i') });
+            } catch (_) {
+              // Ignore incomplete regex while typing
+            }
+          } else {
+            const escaped = p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            matchers.push({ label: p, regex: new RegExp(escaped, 'i') });
+          }
+        }
+        return matchers;
+      }
+
+      function runSecurityAudit() {
+        const findings = [];
+        const nodeFlags = new Map();
+        const fieldFlags = new Map();
+        const metrics = { mutations: 0, sensitive: 0, riskyArgs: 0, deprecated: 0, total: 0 };
+
+        if (!state.parsed) {
+          state.auditData = { findings, nodeFlags, fieldFlags, metrics };
+          return;
+        }
+
+        const { typesByName, roots } = state.parsed;
+        const customMatchers = compileCustomPatterns(state.customPatternRaw);
+
+        const ensureNodeFlag = (typeName) => {
+          if (!nodeFlags.has(typeName)) {
+            nodeFlags.set(typeName, {
+              isMutation: false,
+              hasSensitive: false,
+              hasRiskyArgs: false,
+              categories: new Set()
+            });
+          }
+          return nodeFlags.get(typeName);
+        };
+
+        const ensureFieldFlag = (typeName, fieldName) => {
+          const key = `${typeName}.${fieldName}`;
+          if (!fieldFlags.has(key)) {
+            fieldFlags.set(key, {
+              badges: new Set(),
+              categories: new Set(),
+              severity: 'low',
+              riskyArgs: []
+            });
+          }
+          return fieldFlags.get(key);
+        };
+
+        const sevRank = { critical: 4, high: 3, medium: 2, low: 1 };
+        const bumpSev = (ff, newSev) => {
+          if (sevRank[newSev] > sevRank[ff.severity]) ff.severity = newSev;
+        };
+
+        for (const t of typesByName.values()) {
+          if (isBuiltInType(t)) continue;
+          const isMutationRoot = t.name === roots.mutation;
+          const isQueryRoot = t.name === roots.query;
+          const isSubRoot = t.name === roots.subscription;
+          const opType = isMutationRoot ? 'mutation' : isQueryRoot ? 'query' : isSubRoot ? 'subscription' : null;
+
+          if (isMutationRoot) {
+            const nf = ensureNodeFlag(t.name);
+            nf.isMutation = true;
+            nf.categories.add('MUTATIONS');
+          }
+
+          const allFields = [
+            ...(Array.isArray(t.fields) ? t.fields : []),
+            ...(Array.isArray(t.inputFields) ? t.inputFields : [])
+          ];
+
+          for (const f of allFields) {
+            const returnType = formatTypeRef(f.type);
+            const args = Array.isArray(f.args) ? f.args : [];
+            let fieldSensitiveHit = false;
+
+            const addFinding = (category, badge, severity, reason) => {
+              const nf = ensureNodeFlag(t.name);
+              nf.categories.add(category);
+              if (category === 'AUTH' || category === 'ADMIN' || category === 'PII' || category === 'CUSTOM') {
+                nf.hasSensitive = true;
+              }
+              if (category === 'ARGS') nf.hasRiskyArgs = true;
+
+              const ff = ensureFieldFlag(t.name, f.name);
+              ff.categories.add(category);
+              ff.badges.add(badge);
+              bumpSev(ff, severity);
+
+              findings.push({
+                id: `f-${findings.length}`,
+                typeName: t.name,
+                fieldName: f.name,
+                category,
+                badge,
+                severity,
+                reason,
+                returnType,
+                args,
+                isRootOp: Boolean(opType),
+                opType
+              });
+            };
+
+            // 1. Mutations (with extra high-severity flag for destructive mutations)
+            if (isMutationRoot) {
+              metrics.mutations++;
+              const isDestructive = AUDIT_RULES.destructiveMutation.test(f.name);
+              addFinding(
+                'MUTATIONS',
+                isDestructive ? 'DESTRUCTIVE' : 'MUTATION',
+                isDestructive ? 'critical' : 'high',
+                isDestructive
+                  ? 'High-impact state-changing or destructive mutation.'
+                  : 'Write operation modifying server state.'
+              );
+            }
+
+            // 2. Auth & Secrets
+            if (AUDIT_RULES.authSecret.test(f.name) || (f.description && /\b(jwt|secret|token|password|credential)\b/i.test(f.description))) {
+              fieldSensitiveHit = true;
+              const isSecret = /(secret|apikey|api_key|password|privatekey)/i.test(f.name);
+              addFinding(
+                'AUTH',
+                isSecret ? 'SECRET' : 'AUTH',
+                'critical',
+                isSecret
+                  ? 'Exposes or accepts secret/credential material.'
+                  : 'Authentication or session token surface.'
+              );
+            }
+
+            // 3. Admin & Privileges
+            if (AUDIT_RULES.adminPriv.test(f.name) || AUDIT_RULES.adminPriv.test(t.name)) {
+              fieldSensitiveHit = true;
+              addFinding(
+                'ADMIN',
+                'ADMIN',
+                'critical',
+                'Administrative, RBAC privilege, or internal configuration surface.'
+              );
+            }
+
+            // 4. PII & Billing
+            if (AUDIT_RULES.piiSensitive.test(f.name)) {
+              fieldSensitiveHit = true;
+              addFinding(
+                'PII',
+                'PII',
+                'high',
+                'Potentially exposes Personally Identifiable Information or billing data.'
+              );
+            }
+
+            // 5. Risky Arguments (IDOR / Injection / SSRF / DoS)
+            const matchedRiskyArgs = args.filter(a => AUDIT_RULES.riskyArgs.test(a.name));
+            if (matchedRiskyArgs.length > 0) {
+              metrics.riskyArgs += matchedRiskyArgs.length;
+              const ff = ensureFieldFlag(t.name, f.name);
+              ff.riskyArgs = matchedRiskyArgs.map(a => a.name);
+              addFinding(
+                'ARGS',
+                'ARGS',
+                'medium',
+                `Risky argument(s): ${matchedRiskyArgs.map(a => a.name).join(', ')} (check IDOR, SSRF, injection, or pagination DoS).`
+              );
+            }
+
+            // 6. Deprecated Shadow Fields
+            if (f.isDeprecated) {
+              metrics.deprecated++;
+              addFinding(
+                'DEPRECATED',
+                'DEPRECATED',
+                'low',
+                f.deprecationReason ? `Deprecated: ${f.deprecationReason}` : 'Deprecated field still reachable in schema.'
+              );
+            }
+
+            // 7. Custom Pattern Scanner
+            if (customMatchers.length > 0) {
+              const argNames = args.map(a => a.name).join(' ');
+              const haystack = `${t.name}.${f.name} ${argNames}`;
+              const hit = customMatchers.find(m => m.regex.test(haystack));
+              if (hit) {
+                fieldSensitiveHit = true;
+                addFinding(
+                  'CUSTOM',
+                  'CUSTOM',
+                  'high',
+                  `Matched custom pattern: "${hit.label}".`
+                );
+              }
+            }
+
+            if (fieldSensitiveHit) metrics.sensitive++;
+          }
+        }
+
+        metrics.total = findings.length;
+        state.auditData = { findings, nodeFlags, fieldFlags, metrics };
+        dom.auditTotalBadge.textContent = metrics.total;
+      }
+
+      function isCategoryActive(cat) {
+        if (cat === 'CUSTOM') return true;
+        return Boolean(state.auditCategories[cat]);
+      }
+
+      function isNodeAuditFlagged(nodeId) {
+        const nf = state.auditData.nodeFlags.get(nodeId);
+        if (!nf) return false;
+        for (const c of nf.categories) {
+          if (isCategoryActive(c)) return true;
+        }
+        return false;
+      }
+
+      /* -----------------------------------------------------------------------
+         8. GRAPHQL OPERATION SKELETON GENERATOR
+         ----------------------------------------------------------------------- */
+      function sampleArgValue(typeRef) {
+        if (!typeRef) return '""';
+        if (typeRef.kind === 'NON_NULL') return sampleArgValue(typeRef.ofType);
+        if (typeRef.kind === 'LIST') return `[${sampleArgValue(typeRef.ofType)}]`;
+
+        const t = state.parsed && state.parsed.typesByName.get(typeRef.name);
+        if (t && t.kind === 'ENUM' && Array.isArray(t.enumValues) && t.enumValues.length > 0) {
+          return t.enumValues[0].name;
+        }
+        if (t && t.kind === 'INPUT_OBJECT' && Array.isArray(t.inputFields)) {
+          const inner = t.inputFields.slice(0, 4).map(inf => `${inf.name}: ${sampleArgValue(inf.type)}`).join(', ');
+          return `{ ${inner} }`;
+        }
+        switch (typeRef.name) {
+          case 'Int': return '10';
+          case 'Float': return '1.0';
+          case 'Boolean': return 'true';
+          case 'ID': return '"1"';
+          default: return '"example"';
+        }
+      }
+
+      function buildSelectionSet(typeName, depth = 0, visited = new Set()) {
+        if (!typeName || depth > 2 || visited.has(typeName)) return '';
+        const t = state.parsed && state.parsed.typesByName.get(typeName);
+        if (!t || t.kind === 'SCALAR' || t.kind === 'ENUM') return '';
+
+        const nextVisited = new Set(visited);
+        nextVisited.add(typeName);
+        const indent = '  '.repeat(depth + 2);
+        const closeIndent = '  '.repeat(depth + 1);
+
+        if (t.kind === 'UNION' && Array.isArray(t.possibleTypes)) {
+          const lines = ['__typename'];
+          for (const pt of t.possibleTypes.slice(0, 3)) {
+            const sub = buildSelectionSet(pt.name, depth + 1, nextVisited);
+            if (sub) lines.push(`... on ${pt.name} ${sub}`);
+          }
+          return `{\n${lines.map(l => indent + l).join('\n')}\n${closeIndent}}`;
+        }
+
+        if ((t.kind === 'OBJECT' || t.kind === 'INTERFACE') && Array.isArray(t.fields)) {
+          const scalarLines = [];
+          const nestedLines = [];
+
+          for (const f of t.fields) {
+            const base = unwrapType(f.type);
+            const targetT = state.parsed.typesByName.get(base.name);
+            if (!targetT || targetT.kind === 'SCALAR' || targetT.kind === 'ENUM') {
+              scalarLines.push(f.name);
+            } else if (depth === 0 && nestedLines.length < 2 && !nextVisited.has(base.name)) {
+              const sub = buildSelectionSet(base.name, depth + 1, nextVisited);
+              if (sub) nestedLines.push(`${f.name} ${sub}`);
+            }
+          }
+
+          const combined = [...scalarLines.slice(0, 6), ...nestedLines];
+          if (combined.length === 0) combined.push('__typename');
+          return `{\n${combined.map(l => indent + l).join('\n')}\n${closeIndent}}`;
+        }
+
+        return '';
+      }
+
+      function generateOperationSkeleton(opType, field) {
+        const args = Array.isArray(field.args) ? field.args : [];
+        const argCall = args.length > 0
+          ? `(${args.map(a => `${a.name}: ${a.defaultValue || sampleArgValue(a.type)}`).join(', ')})`
+          : '';
+        const baseReturn = unwrapType(field.type).name;
+        const selSet = buildSelectionSet(baseReturn, 0, new Set());
+        const opName = field.name.charAt(0).toUpperCase() + field.name.slice(1);
+        return `${opType} ${opName}Op {\n  ${field.name}${argCall}${selSet ? ' ' + selSet : ''}\n}`;
+      }
+
+      /* -----------------------------------------------------------------------
+         9. GRAPH MODEL BUILDER & DETERMINISTIC LAYERED LAYOUT
+         ----------------------------------------------------------------------- */
+      const CARD_WIDTH = 304;
+      const CARD_HEADER_H = 42;
+      const CARD_ROW_H = 26;
+      const CARD_PAD_B = 8;
+
+      function isTypeVisible(type, roots) {
+        if (isBuiltInType(type)) return state.filters.BUILTIN;
+        const dk = getDisplayKind(type, roots);
+        if (dk === 'ROOT_QUERY' || dk === 'ROOT_MUTATION' || dk === 'ROOT_SUBSCRIPTION') return true;
+        if (type.kind === 'SCALAR') return state.filters.BUILTIN;
+        return Boolean(state.filters[type.kind]);
+      }
+
+      function buildGraphModel(preservePositions = false) {
+        if (!state.parsed) return;
+        const { typesByName, roots } = state.parsed;
+        const prevPositions = new Map();
+        if (preservePositions) {
+          for (const [id, n] of state.nodes.entries()) {
+            prevPositions.set(id, { x: n.x, y: n.y });
+          }
+        }
+
+        const visibleTypes = [];
+        const visibleSet = new Set();
+        for (const t of typesByName.values()) {
+          if (isTypeVisible(t, roots)) {
+            visibleTypes.push(t);
+            visibleSet.add(t.name);
+          }
+        }
+
+        const nodes = new Map();
+        const edges = [];
+        const edgeDedup = new Set();
+
+        const pushEdge = (source, target, kind, rowIndex, label) => {
+          if (!visibleSet.has(source) || !visibleSet.has(target)) return;
+          const key = `${source}|${target}|${kind}|${rowIndex}`;
+          if (edgeDedup.has(key)) return;
+          edgeDedup.add(key);
+          edges.push({ id: `e-${edges.length}`, source, target, kind, rowIndex, label });
+        };
+
+        for (const t of visibleTypes) {
+          const displayKind = getDisplayKind(t, roots);
+          const rows = [];
+
+          if (t.kind === 'OBJECT' || t.kind === 'INTERFACE') {
+            const fields = Array.isArray(t.fields) ? t.fields : [];
+            for (const f of fields) {
+              const targetName = unwrapType(f.type).name;
+              const isReturnRel = visibleSet.has(targetName);
+              const argTargets = (f.args || [])
+                .map(a => unwrapType(a.type).name)
+                .filter(name => visibleSet.has(name));
+              const hasRel = isReturnRel || argTargets.length > 0;
+
+              if (state.relationsOnly && !hasRel) continue;
+
+              const rowIdx = rows.length;
+              rows.push({
+                name: f.name,
+                typeStr: formatTypeRef(f.type),
+                isRelation: isReturnRel,
+                argCount: Array.isArray(f.args) ? f.args.length : 0,
+                isDeprecated: Boolean(f.isDeprecated),
+                rowKind: 'field'
+              });
+
+              if (isReturnRel) pushEdge(t.name, targetName, 'field', rowIdx, f.name);
+              for (const argT of argTargets) {
+                if (argT !== targetName) pushEdge(t.name, argT, 'argument', rowIdx, `${f.name}(arg)`);
+              }
+            }
+          } else if (t.kind === 'INPUT_OBJECT') {
+            const inputFields = Array.isArray(t.inputFields) ? t.inputFields : [];
+            for (const inf of inputFields) {
+              const targetName = unwrapType(inf.type).name;
+              const isRel = visibleSet.has(targetName);
+              if (state.relationsOnly && !isRel) continue;
+
+              const rowIdx = rows.length;
+              rows.push({
+                name: inf.name,
+                typeStr: formatTypeRef(inf.type),
+                isRelation: isRel,
+                argCount: 0,
+                isDeprecated: false,
+                rowKind: 'inputField'
+              });
+
+              if (isRel) pushEdge(t.name, targetName, 'field', rowIdx, inf.name);
+            }
+          } else if (t.kind === 'UNION') {
+            const pts = Array.isArray(t.possibleTypes) ? t.possibleTypes : [];
+            for (const pt of pts) {
+              if (!pt || !pt.name) continue;
+              const rowIdx = rows.length;
+              rows.push({
+                name: pt.name,
+                typeStr: 'member',
+                isRelation: visibleSet.has(pt.name),
+                argCount: 0,
+                isDeprecated: false,
+                rowKind: 'union'
+              });
+              if (visibleSet.has(pt.name)) pushEdge(t.name, pt.name, 'union', rowIdx, 'possibleType');
+            }
+          } else if (t.kind === 'ENUM') {
+            const vals = Array.isArray(t.enumValues) ? t.enumValues : [];
+            const maxDisplay = 10;
+            for (let i = 0; i < Math.min(vals.length, maxDisplay); i++) {
+              rows.push({
+                name: vals[i].name,
+                typeStr: '',
+                isRelation: false,
+                argCount: 0,
+                isDeprecated: Boolean(vals[i].isDeprecated),
+                rowKind: 'enum'
+              });
+            }
+            if (vals.length > maxDisplay) {
+              rows.push({
+                name: `+${vals.length - maxDisplay} more values…`,
+                typeStr: '',
+                isRelation: false,
+                argCount: 0,
+                isDeprecated: false,
+                rowKind: 'meta'
+              });
+            }
+          }
+
+          if (t.kind === 'OBJECT' && Array.isArray(t.interfaces)) {
+            for (const iface of t.interfaces) {
+              if (iface && iface.name && visibleSet.has(iface.name)) {
+                pushEdge(t.name, iface.name, 'implements', -1, 'implements');
+              }
+            }
+          }
+
+          const contentRows = Math.max(rows.length, 1);
+          const height = CARD_HEADER_H + contentRows * CARD_ROW_H + CARD_PAD_B;
+
+          nodes.set(t.name, {
+            id: t.name,
+            type: t,
+            displayKind,
+            width: CARD_WIDTH,
+            height,
+            rows,
+            x: 0,
+            y: 0,
+            level: 0
+          });
+        }
+
+        state.nodes = nodes;
+        state.edges = edges;
+
+        if (preservePositions && prevPositions.size > 0) {
+          let allHadPos = true;
+          for (const [id, node] of state.nodes.entries()) {
+            if (prevPositions.has(id)) {
+              const p = prevPositions.get(id);
+              node.x = p.x;
+              node.y = p.y;
+            } else {
+              allHadPos = false;
+            }
+          }
+          if (!allHadPos) runAutoLayout();
+        } else {
+          runAutoLayout();
+        }
+
+        if (state.selectedNodeId && !state.nodes.has(state.selectedNodeId)) {
+          state.selectedNodeId = null;
+        }
+
+        updateStats();
+        renderGraph();
+      }
+
+      /**
+       * Layered DAG Layout: roots on the left, core objects in middle columns,
+       * inputs/enums/unions cleanly arranged with barycenter crossing minimization.
+       */
+      function runAutoLayout() {
+        const nodes = state.nodes;
+        if (nodes.size === 0) return;
+
+        const { roots } = state.parsed;
+        const outgoing = new Map();
+        const incoming = new Map();
+        for (const id of nodes.keys()) {
+          outgoing.set(id, []);
+          incoming.set(id, []);
+        }
+        for (const e of state.edges) {
+          if (e.source !== e.target) {
+            outgoing.get(e.source).push(e.target);
+            incoming.get(e.target).push(e.source);
+          }
+        }
+
+        const levelMap = new Map();
+        const queue = [];
+        const rootOrder = [roots.query, roots.mutation, roots.subscription].filter(r => r && nodes.has(r));
+        for (const r of rootOrder) {
+          levelMap.set(r, 0);
+          queue.push(r);
+        }
+
+        while (queue.length > 0) {
+          const cur = queue.shift();
+          const curLvl = levelMap.get(cur);
+          for (const nxt of outgoing.get(cur)) {
+            if (!levelMap.has(nxt)) {
+              levelMap.set(nxt, curLvl + 1);
+              queue.push(nxt);
+            }
+          }
+        }
+
+        let maxLvl = 0;
+        for (const l of levelMap.values()) maxLvl = Math.max(maxLvl, l);
+        const unvisitedLevel = levelMap.size > 0 ? maxLvl + 1 : 0;
+
+        for (const id of nodes.keys()) {
+          if (!levelMap.has(id)) levelMap.set(id, unvisitedLevel);
+        }
+
+        // Push Input / Enum / Union leaf types into a clean rightmost column when not roots
+        const columns = new Map();
+        for (const [id, lvl] of levelMap.entries()) {
+          const n = nodes.get(id);
+          const adjustedLvl = (lvl > 0 && (n.type.kind === 'ENUM' || n.type.kind === 'INPUT_OBJECT'))
+            ? Math.max(lvl, maxLvl)
+            : lvl;
+          if (!columns.has(adjustedLvl)) columns.set(adjustedLvl, []);
+          columns.get(adjustedLvl).push(n);
+          n.level = adjustedLvl;
+        }
+
+        const sortedLevels = Array.from(columns.keys()).sort((a, b) => a - b);
+        const COL_GAP = 148;
+        const ROW_GAP = 34;
+        const assignedCenterY = new Map();
+
+        let curX = 0;
+        for (const lvl of sortedLevels) {
+          const colNodes = columns.get(lvl);
+
+          if (lvl === 0) {
+            const rank = (n) => {
+              if (n.displayKind === 'ROOT_QUERY') return 0;
+              if (n.displayKind === 'ROOT_MUTATION') return 1;
+              if (n.displayKind === 'ROOT_SUBSCRIPTION') return 2;
+              return 3;
+            };
+            colNodes.sort((a, b) => rank(a) - rank(b) || a.id.localeCompare(b.id));
+          } else {
+            colNodes.sort((a, b) => {
+              const avgY = (node) => {
+                const parents = incoming.get(node.id).filter(p => assignedCenterY.has(p));
+                if (parents.length === 0) return Number.MAX_SAFE_INTEGER;
+                return parents.reduce((acc, p) => acc + assignedCenterY.get(p), 0) / parents.length;
+              };
+              const ya = avgY(a), yb = avgY(b);
+              if (ya !== yb) return ya - yb;
+              if (a.type.kind !== b.type.kind) return a.type.kind.localeCompare(b.type.kind);
+              return a.id.localeCompare(b.id);
+            });
+          }
+
+          const totalH = colNodes.reduce((sum, n) => sum + n.height, 0) + (colNodes.length - 1) * ROW_GAP;
+          let curY = -totalH / 2;
+
+          for (const n of colNodes) {
+            n.x = curX;
+            n.y = curY;
+            assignedCenterY.set(n.id, curY + n.height / 2);
+            curY += n.height + ROW_GAP;
+          }
+
+          curX += CARD_WIDTH + COL_GAP;
+        }
+      }
+
+      /* -----------------------------------------------------------------------
+         10. SVG RENDERING ENGINE (WITH SECURITY AUDIT OVERLAYS)
+         ----------------------------------------------------------------------- */
+      function computeEdgePath(edge) {
+        const src = state.nodes.get(edge.source);
+        const tgt = state.nodes.get(edge.target);
+        if (!src || !tgt) return '';
+
+        const srcY = edge.rowIndex >= 0
+          ? src.y + CARD_HEADER_H + edge.rowIndex * CARD_ROW_H + CARD_ROW_H / 2
+          : src.y + CARD_HEADER_H / 2;
+
+        if (src.id === tgt.id) {
+          const xStart = src.x + src.width;
+          const yEnd = src.y + 18;
+          const loopOut = 58;
+          return `M ${xStart} ${srcY} C ${xStart + loopOut} ${srcY}, ${xStart + loopOut} ${yEnd}, ${xStart + 2} ${yEnd}`;
+        }
+
+        const tgtY = tgt.y + CARD_HEADER_H / 2;
+        const srcCenterX = src.x + src.width / 2;
+        const tgtCenterX = tgt.x + tgt.width / 2;
+        const horizontalGap = Math.abs(tgtCenterX - srcCenterX);
+
+        let x1, x2, c1x, c2x;
+        if (horizontalGap < CARD_WIDTH * 0.65) {
+          x1 = src.x + src.width;
+          x2 = tgt.x + tgt.width;
+          const bow = Math.min(120, Math.max(55, Math.abs(tgtY - srcY) * 0.25));
+          c1x = x1 + bow;
+          c2x = x2 + bow;
+        } else if (tgtCenterX >= srcCenterX) {
+          x1 = src.x + src.width;
+          x2 = tgt.x;
+          const ctrl = Math.max(55, Math.abs(x2 - x1) * 0.48);
+          c1x = x1 + ctrl;
+          c2x = x2 - ctrl;
+        } else {
+          x1 = src.x;
+          x2 = tgt.x + tgt.width;
+          const ctrl = Math.max(55, Math.abs(x1 - x2) * 0.48);
+          c1x = x1 - ctrl;
+          c2x = x2 + ctrl;
+        }
+
+        return `M ${x1} ${srcY} C ${c1x} ${srcY}, ${c2x} ${tgtY}, ${x2} ${tgtY}`;
+      }
+
+      function getEdgeMarker(edge, highlighted = false) {
+        if (edge.kind === 'implements') return 'url(#arrow-implements)';
+        if (edge.kind === 'union') return 'url(#arrow-union)';
+        if (edge.kind === 'argument') return 'url(#arrow-argument)';
+        return highlighted ? 'url(#arrow-highlight)' : 'url(#arrow-default)';
+      }
+
+      function renderGraph() {
+        dom.edgesLayer.innerHTML = '';
+        dom.nodesLayer.innerHTML = '';
+
+        const edgeFrag = document.createDocumentFragment();
+        for (const edge of state.edges) {
+          const path = createSvgEl('path', {
+            id: edge.id,
+            class: `graph-edge edge-${edge.kind}`,
+            d: computeEdgePath(edge),
+            'marker-end': getEdgeMarker(edge, false),
+            'data-source': edge.source,
+            'data-target': edge.target
+          });
+          edgeFrag.appendChild(path);
+        }
+        dom.edgesLayer.appendChild(edgeFrag);
+
+        const nodeFrag = document.createDocumentFragment();
+        for (const node of state.nodes.values()) {
+          nodeFrag.appendChild(createNodeElement(node));
+        }
+        dom.nodesLayer.appendChild(nodeFrag);
+
+        applySelectionHighlight();
+      }
+
+      function getAuditTagStyle(tag) {
+        switch (tag) {
+          case 'DESTRUCTIVE': return { bg: 'rgba(244,63,94,0.28)', border: '#F43F5E', text: '#FFE4E6', label: 'HIGH' };
+          case 'SECRET':      return { bg: 'rgba(244,63,94,0.25)', border: '#F43F5E', text: '#FDA4AF', label: 'SECRET' };
+          case 'AUTH':        return { bg: 'rgba(244,63,94,0.22)', border: '#FB7185', text: '#FDA4AF', label: 'AUTH' };
+          case 'ADMIN':       return { bg: 'rgba(239,68,68,0.24)', border: '#EF4444', text: '#FCA5A5', label: 'ADMIN' };
+          case 'PII':         return { bg: 'rgba(249,115,22,0.22)', border: '#F97316', text: '#FDBA74', label: 'PII' };
+          case 'DEPRECATED':  return { bg: 'rgba(168,85,247,0.22)', border: '#A855F7', text: '#D8B4FE', label: 'DEPR' };
+          case 'CUSTOM':      return { bg: 'rgba(229,53,171,0.24)', border: '#E535AB', text: '#F9A8D4', label: 'MATCH' };
+          default:            return { bg: 'rgba(245,158,11,0.22)', border: '#F59E0B', text: '#FCD34D', label: tag };
+        }
+      }
+
+      function createNodeElement(node) {
+        const style = KIND_STYLES[node.displayKind] || KIND_STYLES.OBJECT;
+        const nf = state.auditData.nodeFlags.get(node.id);
+        let auditClass = '';
+
+        if (state.auditMode && nf) {
+          if (nf.isMutation && isCategoryActive('MUTATIONS')) {
+            auditClass = ' audit-mutation';
+          } else if (nf.hasSensitive && (isCategoryActive('AUTH') || isCategoryActive('ADMIN') || isCategoryActive('PII'))) {
+            auditClass = ' audit-sensitive';
+          } else if (nf.hasRiskyArgs && isCategoryActive('ARGS')) {
+            auditClass = ' audit-risky-args';
+          }
+        }
+
+        const g = createSvgEl('g', {
+          class: `graph-node${auditClass}`,
+          'data-id': node.id,
+          transform: `translate(${node.x}, ${node.y})`
+        });
+
+        const cardRect = createSvgEl('rect', {
+          class: 'node-card-bg',
+          width: node.width,
+          height: node.height,
+          rx: 9,
+          ry: 9,
+          filter: 'url(#card-shadow)'
+        });
+        g.appendChild(cardRect);
+
+        const headerBg = createSvgEl('path', {
+          d: `M 0 9 Q 0 0 9 0 L ${node.width - 9} 0 Q ${node.width} 0 ${node.width} 9 L ${node.width} ${CARD_HEADER_H} L 0 ${CARD_HEADER_H} Z`,
+          fill: style.bg
+        });
+        g.appendChild(headerBg);
+
+        const topStripe = createSvgEl('path', {
+          d: `M 0 9 Q 0 0 9 0 L ${node.width - 9} 0 Q ${node.width} 0 ${node.width} 9 L ${node.width} 3.5 L 0 3.5 Z`,
+          fill: style.color
+        });
+        g.appendChild(topStripe);
+
+        g.appendChild(createSvgEl('line', {
+          x1: 0, y1: CARD_HEADER_H, x2: node.width, y2: CARD_HEADER_H,
+          stroke: '#252D3D', 'stroke-width': 1
+        }));
+
+        // Kind Badge Pill
+        const badgeLabel = style.label;
+        const badgeW = badgeLabel.length * 6.2 + 12;
+        const badgeX = node.width - badgeW - 10;
+        g.appendChild(createSvgEl('rect', {
+          x: badgeX, y: 13, width: badgeW, height: 18, rx: 9,
+          fill: 'rgba(11, 14, 20, 0.72)', stroke: style.color, 'stroke-width': 0.9
+        }));
+
+        const badgeText = createSvgEl('text', {
+          class: 'node-kind-badge-text',
+          x: badgeX + badgeW / 2, y: 25.2, 'text-anchor': 'middle', fill: style.color
+        });
+        badgeText.textContent = badgeLabel;
+        g.appendChild(badgeText);
+
+        // Title
+        const maxTitleChars = Math.max(10, Math.floor((badgeX - 18) / 7.8));
+        const titleEl = createSvgEl('text', { class: 'node-title', x: 12, y: 26.5 });
+        titleEl.textContent = truncateText(node.id, maxTitleChars);
+        g.appendChild(titleEl);
+
+        // Field Rows
+        if (node.rows.length === 0) {
+          const emptyText = createSvgEl('text', {
+            class: 'node-empty-text', x: 12, y: CARD_HEADER_H + 18
+          });
+          emptyText.textContent = state.relationsOnly ? 'No visible relation fields' : 'No fields';
+          g.appendChild(emptyText);
+        } else {
+          node.rows.forEach((row, idx) => {
+            const rowY = CARD_HEADER_H + idx * CARD_ROW_H;
+            const ff = state.auditData.fieldFlags.get(`${node.id}.${row.name}`);
+
+            // Determine active audit badge for this row
+            let activeRowBadge = null;
+            let hasActiveRiskyArgs = false;
+            let rowAuditClass = '';
+
+            if (state.auditMode && ff) {
+              const priority = ['DESTRUCTIVE', 'SECRET', 'AUTH', 'ADMIN', 'PII', 'CUSTOM', 'DEPRECATED'];
+              const badgeToCat = {
+                DESTRUCTIVE: 'MUTATIONS', SECRET: 'AUTH', AUTH: 'AUTH',
+                ADMIN: 'ADMIN', PII: 'PII', CUSTOM: 'CUSTOM', DEPRECATED: 'DEPRECATED'
+              };
+              for (const b of priority) {
+                if (ff.badges.has(b) && isCategoryActive(badgeToCat[b])) {
+                  activeRowBadge = b;
+                  break;
+                }
+              }
+              hasActiveRiskyArgs = ff.categories.has('ARGS') && isCategoryActive('ARGS');
+
+              if (activeRowBadge && ['DESTRUCTIVE', 'SECRET', 'AUTH', 'ADMIN', 'PII', 'CUSTOM'].includes(activeRowBadge)) {
+                rowAuditClass = ' audit-row-critical';
+              } else if (ff.categories.has('MUTATIONS') && isCategoryActive('MUTATIONS')) {
+                rowAuditClass = ' audit-row-mutation';
+              } else if (hasActiveRiskyArgs) {
+                rowAuditClass = ' audit-row-arg';
+              }
+            }
+
+            const rowG = createSvgEl('g', {
+              class: `node-field-row${rowAuditClass}`,
+              'data-field': row.name
+            });
+
+            rowG.appendChild(createSvgEl('rect', {
+              class: 'node-field-hover',
+              x: 1, y: rowY, width: node.width - 2, height: CARD_ROW_H, fill: 'transparent'
+            }));
+
+            let nameX = 12;
+            if (row.argCount > 0 && !state.auditMode) {
+              const argDot = createSvgEl('circle', {
+                class: 'node-field-arg-dot', cx: 15, cy: rowY + CARD_ROW_H / 2, r: 2.5
+              });
+              const argTitle = createSvgEl('title');
+              argTitle.textContent = `Takes ${row.argCount} argument(s)`;
+              argDot.appendChild(argTitle);
+              rowG.appendChild(argDot);
+              nameX = 23;
+            }
+
+            // Right-aligned pills & return type layout
+            let rightCursor = node.width - 10;
+
+            // Return type text
+            const typeStr = truncateText(row.typeStr, state.auditMode ? 12 : 17);
+            if (typeStr) {
+              const typeEl = createSvgEl('text', {
+                class: `node-field-type${row.isRelation ? ' is-relation' : ''}`,
+                x: rightCursor, y: rowY + 17, 'text-anchor': 'end'
+              });
+              typeEl.textContent = typeStr;
+              rowG.appendChild(typeEl);
+              rightCursor -= typeStr.length * 6.6 + 8;
+            }
+
+            // Audit Mode: ARGS (N) pill badge
+            if (state.auditMode && row.argCount > 0) {
+              const argsText = `ARGS(${row.argCount})`;
+              const pillW = argsText.length * 5.6 + 8;
+              rightCursor -= pillW;
+              const isRisky = hasActiveRiskyArgs;
+              rowG.appendChild(createSvgEl('rect', {
+                x: rightCursor, y: rowY + 6, width: pillW, height: 14, rx: 4,
+                fill: isRisky ? 'rgba(6, 182, 212, 0.25)' : 'rgba(139, 92, 246, 0.2)',
+                stroke: isRisky ? '#06B6D4' : '#8B5CF6',
+                'stroke-width': 0.85
+              }));
+              const pillTxt = createSvgEl('text', {
+                class: 'node-audit-pill-text',
+                x: rightCursor + pillW / 2, y: rowY + 15.8, 'text-anchor': 'middle',
+                fill: isRisky ? '#67E8F9' : '#C4B5FD'
+              });
+              pillTxt.textContent = argsText;
+              rowG.appendChild(pillTxt);
+              rightCursor -= 5;
+            }
+
+            // Audit Mode: Category Tag Pill (AUTH / ADMIN / PII / SECRET / HIGH / DEPR)
+            if (state.auditMode && activeRowBadge) {
+              const st = getAuditTagStyle(activeRowBadge);
+              const pillW = st.label.length * 5.8 + 8;
+              rightCursor -= pillW;
+              rowG.appendChild(createSvgEl('rect', {
+                x: rightCursor, y: rowY + 6, width: pillW, height: 14, rx: 4,
+                fill: st.bg, stroke: st.border, 'stroke-width': 0.85
+              }));
+              const pillTxt = createSvgEl('text', {
+                class: 'node-audit-pill-text',
+                x: rightCursor + pillW / 2, y: rowY + 15.8, 'text-anchor': 'middle',
+                fill: st.text
+              });
+              pillTxt.textContent = st.label;
+              rowG.appendChild(pillTxt);
+              rightCursor -= 5;
+            }
+
+            const availNamePx = Math.max(46, rightCursor - nameX);
+            const maxNameChars = Math.max(6, Math.floor(availNamePx / 6.9));
+            const nameEl = createSvgEl('text', {
+              class: `node-field-name${row.isDeprecated ? ' deprecated' : ''}`,
+              x: nameX, y: rowY + 17
+            });
+            nameEl.textContent = truncateText(row.name, maxNameChars);
+            rowG.appendChild(nameEl);
+
+            g.appendChild(rowG);
+          });
+        }
+
+        g.addEventListener('pointerdown', (ev) => onNodePointerDown(ev, node.id));
+        return g;
+      }
+
+      function updateConnectedEdges(nodeId) {
+        for (const edge of state.edges) {
+          if (edge.source === nodeId || edge.target === nodeId) {
+            const pathEl = document.getElementById(edge.id);
+            if (pathEl) pathEl.setAttribute('d', computeEdgePath(edge));
+          }
+        }
+      }
+
+      /* -----------------------------------------------------------------------
+         11. PAN, ZOOM, DRAG, FOCUS & PULSE
+         ----------------------------------------------------------------------- */
+      function applyTransform() {
+        const { x, y, scale } = state.transform;
+        dom.viewport.setAttribute('transform', `translate(${x}, ${y}) scale(${scale})`);
+        dom.dotGrid.setAttribute('patternTransform', `translate(${x}, ${y}) scale(${scale})`);
+        dom.zoomReadout.textContent = `${Math.round(scale * 100)}%`;
+      }
+
+      function zoomAtPoint(factor, clientX, clientY) {
+        const rect = dom.svg.getBoundingClientRect();
+        const sx = clientX - rect.left;
+        const sy = clientY - rect.top;
+        const oldScale = state.transform.scale;
+        const newScale = Math.min(2.5, Math.max(0.15, oldScale * factor));
+        const ratio = newScale / oldScale;
+
+        state.transform.x = sx - (sx - state.transform.x) * ratio;
+        state.transform.y = sy - (sy - state.transform.y) * ratio;
+        state.transform.scale = newScale;
+        applyTransform();
+      }
+
+      function fitToView(padding = 60) {
+        if (state.nodes.size === 0) return;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const n of state.nodes.values()) {
+          minX = Math.min(minX, n.x);
+          minY = Math.min(minY, n.y);
+          maxX = Math.max(maxX, n.x + n.width);
+          maxY = Math.max(maxY, n.y + n.height);
+        }
+
+        const rect = dom.canvasStage.getBoundingClientRect();
+        const contentW = Math.max(1, maxX - minX);
+        const contentH = Math.max(1, maxY - minY);
+        const availW = Math.max(100, rect.width - padding * 2);
+        const availH = Math.max(100, rect.height - padding * 2);
+
+        const scale = Math.min(1.12, Math.max(0.18, Math.min(availW / contentW, availH / contentH)));
+        const cx = (minX + maxX) / 2;
+        const cy = (minY + maxY) / 2;
+
+        state.transform.scale = scale;
+        state.transform.x = rect.width / 2 - cx * scale;
+        state.transform.y = rect.height / 2 - cy * scale;
+        applyTransform();
+      }
+
+      function focusNode(nodeId) {
+        const node = state.nodes.get(nodeId);
+        if (!node) return;
+        const rect = dom.canvasStage.getBoundingClientRect();
+        const targetScale = Math.max(state.transform.scale, 0.96);
+        const cx = node.x + node.width / 2;
+        const cy = node.y + node.height / 2;
+        state.transform.scale = targetScale;
+        state.transform.x = rect.width / 2 - cx * targetScale;
+        state.transform.y = rect.height / 2 - cy * targetScale;
+        applyTransform();
+      }
+
+      function pulseFieldRow(nodeId, fieldName) {
+        const nodeEl = dom.nodesLayer.querySelector(`.graph-node[data-id="${CSS.escape(nodeId)}"]`);
+        if (!nodeEl) return;
+        const rowEl = nodeEl.querySelector(`.node-field-row[data-field="${CSS.escape(fieldName)}"]`);
+        if (!rowEl) return;
+        rowEl.classList.remove('pulsing');
+        // Force reflow to restart animation
+        void rowEl.getBoundingClientRect();
+        rowEl.classList.add('pulsing');
+        setTimeout(() => rowEl.classList.remove('pulsing'), 2300);
+      }
+
+      function onNodePointerDown(ev, nodeId) {
+        if (ev.button !== 0) return;
+        ev.stopPropagation();
+        const node = state.nodes.get(nodeId);
+        if (!node) return;
+
+        state.dragNode = {
+          id: nodeId,
+          startX: ev.clientX,
+          startY: ev.clientY,
+          origX: node.x,
+          origY: node.y,
+          moved: false
+        };
+
+        const el = dom.nodesLayer.querySelector(`.graph-node[data-id="${CSS.escape(nodeId)}"]`);
+        if (el) el.classList.add('dragging');
+      }
+
+      dom.svg.addEventListener('pointerdown', (ev) => {
+        if (ev.button !== 0) return;
+        state.isPanning = true;
+        state.panStart = {
+          x: ev.clientX, y: ev.clientY,
+          tx: state.transform.x, ty: state.transform.y,
+          moved: false
+        };
+        dom.svg.classList.add('panning');
+      });
+
+      window.addEventListener('pointermove', (ev) => {
+        if (state.dragNode) {
+          const dx = ev.clientX - state.dragNode.startX;
+          const dy = ev.clientY - state.dragNode.startY;
+          if (!state.dragNode.moved && Math.hypot(dx, dy) > 4) state.dragNode.moved = true;
+          if (state.dragNode.moved) {
+            const node = state.nodes.get(state.dragNode.id);
+            node.x = state.dragNode.origX + dx / state.transform.scale;
+            node.y = state.dragNode.origY + dy / state.transform.scale;
+            const el = dom.nodesLayer.querySelector(`.graph-node[data-id="${CSS.escape(node.id)}"]`);
+            if (el) el.setAttribute('transform', `translate(${node.x}, ${node.y})`);
+            updateConnectedEdges(node.id);
+          }
+          return;
+        }
+        if (state.isPanning) {
+          const dx = ev.clientX - state.panStart.x;
+          const dy = ev.clientY - state.panStart.y;
+          if (!state.panStart.moved && Math.hypot(dx, dy) > 4) state.panStart.moved = true;
+          state.transform.x = state.panStart.tx + dx;
+          state.transform.y = state.panStart.ty + dy;
+          applyTransform();
+        }
+      });
+
+      window.addEventListener('pointerup', () => {
+        if (state.dragNode) {
+          const { id, moved } = state.dragNode;
+          const el = dom.nodesLayer.querySelector(`.graph-node[data-id="${CSS.escape(id)}"]`);
+          if (el) el.classList.remove('dragging');
+          state.dragNode = null;
+          if (!moved) selectNode(id, false, !state.auditMode);
+          return;
+        }
+        if (state.isPanning) {
+          const moved = state.panStart.moved;
+          state.isPanning = false;
+          dom.svg.classList.remove('panning');
+          if (!moved) clearSelection();
+        }
+      });
+
+      dom.svg.addEventListener('wheel', (ev) => {
+        ev.preventDefault();
+        const factor = ev.deltaY < 0 ? 1.1 : 0.91;
+        zoomAtPoint(factor, ev.clientX, ev.clientY);
+      }, { passive: false });
+
+      dom.svg.addEventListener('touchmove', (ev) => {
+        if (ev.touches.length === 2) {
+          ev.preventDefault();
+          const t1 = ev.touches[0], t2 = ev.touches[1];
+          const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+          if (state.pinchDist) {
+            zoomAtPoint(dist / state.pinchDist, (t1.clientX + t2.clientX) / 2, (t1.clientY + t2.clientY) / 2);
+          }
+          state.pinchDist = dist;
+        }
+      }, { passive: false });
+
+      dom.svg.addEventListener('touchend', () => { state.pinchDist = null; });
+
+      /* -----------------------------------------------------------------------
+         12. SIDEBAR, SELECTION, INSPECTOR & AUDIT PANEL RENDERING
+         ----------------------------------------------------------------------- */
+      function openSidebar(tab = null) {
+        state.sidebarOpen = true;
+        dom.sidebar.classList.remove('collapsed');
+        if (tab) switchSidebarTab(tab);
+      }
+
+      function closeSidebar() {
+        state.sidebarOpen = false;
+        dom.sidebar.classList.add('collapsed');
+      }
+
+      function switchSidebarTab(tab) {
+        state.activeSideTab = tab;
+        dom.tabBtnInspector.classList.toggle('active', tab === 'inspector');
+        dom.tabBtnAudit.classList.toggle('active', tab === 'audit');
+        dom.panelInspector.classList.toggle('active', tab === 'inspector');
+        dom.panelAudit.classList.toggle('active', tab === 'audit');
+      }
+
+      function selectNode(nodeId, shouldFocus = false, switchToInspector = true) {
+        if (!state.nodes.has(nodeId)) {
+          if (state.parsed && state.parsed.typesByName.has(nodeId)) {
+            showToast(`"${nodeId}" is hidden by active kind filters.`, 'info');
+          }
+          return;
+        }
+        state.selectedNodeId = nodeId;
+        applySelectionHighlight();
+        renderInspector(nodeId);
+        openSidebar(switchToInspector ? 'inspector' : null);
+        if (shouldFocus) focusNode(nodeId);
+      }
+
+      function clearSelection() {
+        state.selectedNodeId = null;
+        applySelectionHighlight();
+        if (!state.auditMode) {
+          closeSidebar();
+        }
+      }
+
+      function applySelectionHighlight() {
+        const selectedId = state.selectedNodeId;
+        const focusFlagged = state.auditMode && state.auditFocusFlagged;
+        const nodeEls = dom.nodesLayer.querySelectorAll('.graph-node');
+        const edgeEls = dom.edgesLayer.querySelectorAll('.graph-edge');
+
+        if (!selectedId) {
+          nodeEls.forEach(el => {
+            const id = el.getAttribute('data-id');
+            el.classList.remove('selected', 'neighbor', 'dimmed');
+            el.classList.toggle('audit-dimmed', focusFlagged && !isNodeAuditFlagged(id));
+          });
+          edgeEls.forEach(el => {
+            const src = el.getAttribute('data-source');
+            const tgt = el.getAttribute('data-target');
+            const dimByAudit = focusFlagged && !isNodeAuditFlagged(src) && !isNodeAuditFlagged(tgt);
+            el.classList.remove('highlighted');
+            el.classList.toggle('dimmed', dimByAudit);
+            const edge = state.edges.find(e => e.id === el.id);
+            if (edge) el.setAttribute('marker-end', getEdgeMarker(edge, false));
+          });
+          return;
+        }
+
+        const neighborSet = new Set([selectedId]);
+        const activeEdgeIds = new Set();
+
+        for (const e of state.edges) {
+          if (e.source === selectedId || e.target === selectedId) {
+            activeEdgeIds.add(e.id);
+            neighborSet.add(e.source);
+            neighborSet.add(e.target);
+          }
+        }
+
+        nodeEls.forEach(el => {
+          const id = el.getAttribute('data-id');
+          el.classList.remove('selected', 'neighbor', 'dimmed', 'audit-dimmed');
+          if (id === selectedId) el.classList.add('selected');
+          else if (neighborSet.has(id)) el.classList.add('neighbor');
+          else el.classList.add('dimmed');
+        });
+
+        edgeEls.forEach(el => {
+          const isHigh = activeEdgeIds.has(el.id);
+          el.classList.toggle('highlighted', isHigh);
+          el.classList.toggle('dimmed', !isHigh);
+          const edge = state.edges.find(e => e.id === el.id);
+          if (edge) el.setAttribute('marker-end', getEdgeMarker(edge, isHigh));
+          if (isHigh) dom.edgesLayer.appendChild(el);
+        });
+      }
+
+      function renderInspector(nodeId) {
+        const node = state.nodes.get(nodeId);
+        if (!node) return;
+        const t = node.type;
+        const style = KIND_STYLES[node.displayKind] || KIND_STYLES.OBJECT;
+        const { roots } = state.parsed;
+
+        const opType = t.name === roots.query ? 'query'
+          : t.name === roots.mutation ? 'mutation'
+          : t.name === roots.subscription ? 'subscription'
+          : null;
+
+        dom.inspectorHeader.style.display = 'flex';
+        dom.inspName.textContent = t.name;
+        dom.inspKind.textContent = style.label;
+        dom.inspKind.style.color = style.color;
+        dom.inspKind.style.background = style.bg;
+        dom.inspKind.style.border = `1px solid ${style.color}`;
+
+        let html = '';
+        if (t.description) {
+          html += `<div class="inspector-desc">${escapeHtml(t.description)}</div>`;
+        }
+
+        if (Array.isArray(t.interfaces) && t.interfaces.length > 0) {
+          html += `<div>
+            <div class="insp-section-title">Implements <span class="insp-section-count">${t.interfaces.length}</span></div>
+            <div class="pill-list">
+              ${t.interfaces.map(i => `<button class="type-link-pill" data-jump="${escapeHtml(i.name)}">${escapeHtml(i.name)}</button>`).join('')}
+            </div>
+          </div>`;
+        }
+
+        if (Array.isArray(t.possibleTypes) && t.possibleTypes.length > 0) {
+          html += `<div>
+            <div class="insp-section-title">Possible Types <span class="insp-section-count">${t.possibleTypes.length}</span></div>
+            <div class="pill-list">
+              ${t.possibleTypes.map(p => `<button class="type-link-pill" data-jump="${escapeHtml(p.name)}">${escapeHtml(p.name)}</button>`).join('')}
+            </div>
+          </div>`;
+        }
+
+        if (Array.isArray(t.fields) && t.fields.length > 0) {
+          html += `<div>
+            <div class="insp-section-title">Fields <span class="insp-section-count">${t.fields.length}</span></div>
+            ${t.fields.map(f => renderInspectorFieldCard(t.name, f, opType)).join('')}
+          </div>`;
+        }
+
+        if (Array.isArray(t.inputFields) && t.inputFields.length > 0) {
+          html += `<div>
+            <div class="insp-section-title">Input Fields <span class="insp-section-count">${t.inputFields.length}</span></div>
+            ${t.inputFields.map(inf => renderInspectorInputCard(inf)).join('')}
+          </div>`;
+        }
+
+        if (Array.isArray(t.enumValues) && t.enumValues.length > 0) {
+          html += `<div>
+            <div class="insp-section-title">Enum Values <span class="insp-section-count">${t.enumValues.length}</span></div>
+            ${t.enumValues.map(ev => `
+              <div class="field-card">
+                <div class="field-card-top">
+                  <span class="field-card-name${ev.isDeprecated ? ' deprecated' : ''}">${escapeHtml(ev.name)}</span>
+                </div>
+                ${ev.description ? `<div class="field-card-desc">${escapeHtml(ev.description)}</div>` : ''}
+                ${ev.isDeprecated ? `<div class="deprecated-banner">Deprecated${ev.deprecationReason ? `: ${escapeHtml(ev.deprecationReason)}` : ''}</div>` : ''}
+              </div>
+            `).join('')}
+          </div>`;
+        }
+
+        const refs = state.parsed.referencedBy.get(t.name) || [];
+        html += `<div>
+          <div class="insp-section-title">Referenced By <span class="insp-section-count">${refs.length}</span></div>
+          ${refs.length === 0
+            ? `<div style="color: var(--text-muted); font-size: 12px;">Not referenced by other types.</div>`
+            : refs.map(r => `
+              <div class="ref-item" data-jump="${escapeHtml(r.sourceType)}">
+                <div class="ref-item-left">
+                  <span>${escapeHtml(r.sourceType)}</span><span class="ref-item-field">.${escapeHtml(r.fieldName)}</span>
+                </div>
+                <span class="ref-item-kind">${escapeHtml(r.kind)}</span>
+              </div>
+            `).join('')
+          }
+        </div>`;
+
+        dom.inspBody.innerHTML = html;
+
+        dom.inspBody.querySelectorAll('[data-jump]').forEach(btn => {
+          btn.addEventListener('click', () => selectNode(btn.getAttribute('data-jump'), true, true));
+        });
+
+        dom.inspBody.querySelectorAll('[data-copy-op]').forEach(btn => {
+          btn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            const fName = btn.getAttribute('data-copy-op');
+            const fObj = (t.fields || []).find(x => x.name === fName);
+            if (fObj && opType) {
+              const skel = generateOperationSkeleton(opType, fObj);
+              copyTextToClipboard(skel, `Copied ${opType} skeleton for "${fName}"`);
+            }
+          });
+        });
+      }
+
+      function renderTypeButton(typeRef) {
+        const formatted = formatTypeRef(typeRef);
+        const unwrapped = unwrapType(typeRef).name;
+        if (unwrapped && state.nodes.has(unwrapped)) {
+          return `<button class="field-type-btn clickable" data-jump="${escapeHtml(unwrapped)}">${escapeHtml(formatted)}</button>`;
+        }
+        return `<span class="field-type-btn scalar">${escapeHtml(formatted)}</span>`;
+      }
+
+      function renderInspectorFieldCard(typeName, f, opType) {
+        const ff = state.auditData.fieldFlags.get(`${typeName}.${f.name}`);
+        const badgesHtml = ff
+          ? Array.from(ff.badges).map(b => `<span class="sev-tag ${escapeHtml(b)}">${escapeHtml(b)}</span>`).join('')
+          : '';
+
+        const argsHtml = Array.isArray(f.args) && f.args.length > 0
+          ? `<div class="args-list">
+              ${f.args.map(a => `
+                <div class="arg-row">
+                  <span class="arg-name">${escapeHtml(a.name)}:</span>
+                  ${renderTypeButton(a.type)}
+                  ${a.defaultValue !== null && a.defaultValue !== undefined ? `<span class="arg-default">= ${escapeHtml(a.defaultValue)}</span>` : ''}
+                </div>
+              `).join('')}
+            </div>`
+          : '';
+
+        const opLabel = opType === 'mutation' ? 'Copy Mutation' : opType === 'subscription' ? 'Copy Subscription' : 'Copy Query';
+        const copyBtnHtml = opType
+          ? `<button class="btn-copy-op" data-copy-op="${escapeHtml(f.name)}">${opLabel}</button>`
+          : '';
+
+        return `
+          <div class="field-card">
+            <div class="field-card-top">
+              <span class="field-card-name${f.isDeprecated ? ' deprecated' : ''}">${escapeHtml(f.name)}</span>
+              ${renderTypeButton(f.type)}
+            </div>
+            ${f.description ? `<div class="field-card-desc">${escapeHtml(f.description)}</div>` : ''}
+            ${f.isDeprecated ? `<div class="deprecated-banner">Deprecated${f.deprecationReason ? `: ${escapeHtml(f.deprecationReason)}` : ''}</div>` : ''}
+            ${argsHtml}
+            ${(copyBtnHtml || badgesHtml) ? `<div class="field-card-actions">${copyBtnHtml}${badgesHtml}</div>` : ''}
+          </div>
+        `;
+      }
+
+      function renderInspectorInputCard(inf) {
+        return `
+          <div class="field-card">
+            <div class="field-card-top">
+              <span class="field-card-name">${escapeHtml(inf.name)}</span>
+              ${renderTypeButton(inf.type)}
+            </div>
+            ${inf.defaultValue !== null && inf.defaultValue !== undefined ? `<div class="arg-row" style="margin-top:4px;"><span class="arg-default">default = ${escapeHtml(inf.defaultValue)}</span></div>` : ''}
+            ${inf.description ? `<div class="field-card-desc">${escapeHtml(inf.description)}</div>` : ''}
+          </div>
+        `;
+      }
+
+      function renderAuditPanel() {
+        const { findings, metrics } = state.auditData;
+        dom.mMutations.textContent = metrics.mutations;
+        dom.mSensitive.textContent = metrics.sensitive;
+        dom.mArgs.textContent = metrics.riskyArgs;
+        dom.mDeprecated.textContent = metrics.deprecated;
+
+        const filtered = findings.filter(f => isCategoryActive(f.category));
+        if (filtered.length === 0) {
+          dom.auditFindingsList.innerHTML = `<div class="empty-inspector">No findings match the active audit filters.</div>`;
+          return;
+        }
+
+        const groups = [
+          { key: 'AUTH',       title: 'Auth & Secrets' },
+          { key: 'ADMIN',      title: 'Admin & Privileges' },
+          { key: 'MUTATIONS',  title: 'Mutations' },
+          { key: 'PII',        title: 'PII & Sensitive Data' },
+          { key: 'ARGS',       title: 'High-Risk Arguments' },
+          { key: 'DEPRECATED', title: 'Deprecated Shadow Fields' },
+          { key: 'CUSTOM',     title: 'Custom Pattern Matches' }
+        ];
+
+        let html = '';
+        for (const grp of groups) {
+          const items = filtered.filter(f => f.category === grp.key);
+          if (items.length === 0) continue;
+
+          html += `<div class="finding-group">
+            <div class="finding-group-header">
+              <span>${escapeHtml(grp.title)}</span>
+              <span class="insp-section-count">${items.length}</span>
+            </div>
+            ${items.map(item => {
+              const opBtn = item.isRootOp
+                ? `<button class="btn-copy-op" data-audit-copy="${escapeHtml(item.typeName)}|${escapeHtml(item.fieldName)}|${escapeHtml(item.opType)}">Copy ${item.opType === 'mutation' ? 'Mutation' : item.opType === 'subscription' ? 'Sub' : 'Query'}</button>`
+                : '';
+              return `
+                <div class="finding-item sev-${escapeHtml(item.severity)}" data-find-type="${escapeHtml(item.typeName)}" data-find-field="${escapeHtml(item.fieldName)}">
+                  <div class="finding-top">
+                    <div class="finding-path"><span class="tname">${escapeHtml(item.typeName)}.</span>${escapeHtml(item.fieldName)}</div>
+                    <span class="sev-tag ${escapeHtml(item.badge)}">${escapeHtml(item.badge)}</span>
+                  </div>
+                  <div class="finding-reason">${escapeHtml(item.reason)}</div>
+                  <div class="finding-footer">
+                    <span class="finding-ret">→ ${escapeHtml(item.returnType)}</span>
+                    ${opBtn}
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>`;
+        }
+
+        dom.auditFindingsList.innerHTML = html;
+
+        // Bind click-to-locate & pulse
+        dom.auditFindingsList.querySelectorAll('.finding-item').forEach(el => {
+          el.addEventListener('click', () => {
+            const tName = el.getAttribute('data-find-type');
+            const fName = el.getAttribute('data-find-field');
+            selectNode(tName, true, false);
+            pulseFieldRow(tName, fName);
+          });
+        });
+
+        // Bind quick GraphQL operation copy buttons
+        dom.auditFindingsList.querySelectorAll('[data-audit-copy]').forEach(btn => {
+          btn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            const [tName, fName, opType] = btn.getAttribute('data-audit-copy').split('|');
+            const t = state.parsed && state.parsed.typesByName.get(tName);
+            const fObj = t && Array.isArray(t.fields) ? t.fields.find(x => x.name === fName) : null;
+            if (fObj) {
+              const skel = generateOperationSkeleton(opType, fObj);
+              copyTextToClipboard(skel, `Copied ${opType} skeleton for "${fName}"`);
+            }
+          });
+        });
+      }
+
+      function toggleAuditMode(forceVal = null) {
+        state.auditMode = forceVal !== null ? forceVal : !state.auditMode;
+        dom.btnAuditMode.classList.toggle('active', state.auditMode);
+        dom.auditBar.classList.toggle('open', state.auditMode);
+
+        if (state.auditMode) {
+          runSecurityAudit();
+          renderAuditPanel();
+          openSidebar('audit');
+          showToast(`Security Audit Mode ON — ${state.auditData.metrics.total} findings flagged`, 'audit');
+        } else {
+          state.auditFocusFlagged = false;
+          dom.btnFocusFlagged.classList.remove('active');
+          if (!state.selectedNodeId) closeSidebar();
+          else switchSidebarTab('inspector');
+        }
+
+        renderGraph();
+      }
+
+      /* -----------------------------------------------------------------------
+         13. SEARCH (TYPES, FIELDS & ARGUMENTS)
+         ----------------------------------------------------------------------- */
+      function updateStats() {
+        dom.statTypes.textContent = state.nodes.size;
+        dom.statEdges.textContent = state.edges.length;
+      }
+
+      function updateSearchResults(query) {
+        const q = query.trim().toLowerCase();
+        if (!q) {
+          dom.searchDropdown.classList.remove('open');
+          state.searchResults = [];
+          state.searchActiveIdx = -1;
+          return;
+        }
+
+        const results = [];
+        for (const node of state.nodes.values()) {
+          if (node.id.toLowerCase().includes(q)) {
+            results.push({ typeId: node.id, fieldName: null, label: node.id, sub: node.displayKind });
+          }
+          const fields = node.type.fields || node.type.inputFields || [];
+          for (const f of fields) {
+            if (f.name.toLowerCase().includes(q)) {
+              results.push({
+                typeId: node.id,
+                fieldName: f.name,
+                label: `${node.id}.${f.name}`,
+                sub: formatTypeRef(f.type)
+              });
+            }
+            if (Array.isArray(f.args)) {
+              for (const arg of f.args) {
+                if (arg.name.toLowerCase().includes(q)) {
+                  results.push({
+                    typeId: node.id,
+                    fieldName: f.name,
+                    label: `${node.id}.${f.name}(${arg.name})`,
+                    sub: `arg: ${formatTypeRef(arg.type)}`
+                  });
+                }
+              }
+            }
+          }
+        }
+
+        state.searchResults = results.slice(0, 26);
+        state.searchActiveIdx = state.searchResults.length > 0 ? 0 : -1;
+
+        const rect = dom.searchInput.getBoundingClientRect();
+        dom.searchDropdown.style.left = `${rect.left}px`;
+        dom.searchDropdown.style.top = `${rect.bottom + 6}px`;
+
+        if (state.searchResults.length === 0) {
+          dom.searchDropdown.innerHTML = `<div class="search-empty">No matching visible types, fields, or arguments</div>`;
+        } else {
+          dom.searchDropdown.innerHTML = state.searchResults.map((r, i) => `
+            <div class="search-item${i === 0 ? ' active' : ''}" data-idx="${i}">
+              <span class="search-item-name">${escapeHtml(r.label)}</span>
+              <span class="search-item-sub">${escapeHtml(r.sub)}</span>
+            </div>
+          `).join('');
+
+          dom.searchDropdown.querySelectorAll('.search-item').forEach(el => {
+            el.addEventListener('mousedown', (ev) => {
+              ev.preventDefault();
+              pickSearchResult(Number(el.getAttribute('data-idx')));
+            });
+          });
+        }
+        dom.searchDropdown.classList.add('open');
+      }
+
+      function pickSearchResult(idx) {
+        const item = state.searchResults[idx];
+        if (!item) return;
+        dom.searchDropdown.classList.remove('open');
+        dom.searchInput.blur();
+        selectNode(item.typeId, true, !state.auditMode);
+        if (item.fieldName) pulseFieldRow(item.typeId, item.fieldName);
+      }
+
+      /* -----------------------------------------------------------------------
+         14. OFFLINE EXPORTS (SVG, PNG, DOT, AUDIT MARKDOWN & JSON)
+         ----------------------------------------------------------------------- */
+      function buildStandaloneSvgString() {
+        if (state.nodes.size === 0) return null;
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const n of state.nodes.values()) {
+          minX = Math.min(minX, n.x);
+          minY = Math.min(minY, n.y);
+          maxX = Math.max(maxX, n.x + n.width);
+          maxY = Math.max(maxY, n.y + n.height);
+        }
+        const pad = 60;
+        const vbX = Math.floor(minX - pad);
+        const vbY = Math.floor(minY - pad);
+        const vbW = Math.ceil(maxX - minX + pad * 2);
+        const vbH = Math.ceil(maxY - minY + pad * 2);
+
+        const defsClone = dom.svg.querySelector('defs').cloneNode(true);
+        const viewportClone = dom.viewport.cloneNode(true);
+        viewportClone.removeAttribute('transform');
+        viewportClone.querySelectorAll('.dimmed').forEach(el => el.classList.remove('dimmed'));
+
+        const embeddedCss = `
+          .graph-edge { fill: none; stroke: #475569; stroke-width: 1.65; }
+          .graph-edge.edge-implements { stroke: #10B981; stroke-dasharray: 6 4; opacity: 0.85; }
+          .graph-edge.edge-union { stroke: #A855F7; stroke-dasharray: 2.5 4; stroke-linecap: round; opacity: 0.85; }
+          .graph-edge.edge-argument { stroke: #F97316; stroke-dasharray: 4 3; opacity: 0.7; }
+          .node-card-bg { fill: #12161F; stroke: #252D3D; stroke-width: 1.25; }
+          .graph-node.audit-mutation .node-card-bg { stroke: #F59E0B; stroke-width: 2.3; }
+          .graph-node.audit-sensitive .node-card-bg { stroke: #F43F5E; stroke-width: 2.1; }
+          .graph-node.audit-risky-args .node-card-bg { stroke: #06B6D4; stroke-width: 1.8; }
+          .node-title { fill: #F1F5F9; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 13px; font-weight: 700; }
+          .node-kind-badge-text { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 9px; font-weight: 700; }
+          .node-field-name { fill: #E2E8F0; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; }
+          .node-field-name.deprecated { fill: #64748B; text-decoration: line-through; }
+          .node-field-type { fill: #94A3B8; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 10.8px; }
+          .node-field-type.is-relation { fill: #93C5FD; }
+          .node-field-arg-dot { fill: #F59E0B; }
+          .node-audit-pill-text { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 8.5px; font-weight: 700; }
+          .node-empty-text { fill: #64748B; font-family: sans-serif; font-size: 11px; font-style: italic; }
+        `;
+
+        const serializer = new XMLSerializer();
+        const svgStr = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="${vbW}" height="${vbH}" viewBox="${vbX} ${vbY} ${vbW} ${vbH}">
+  <style>${embeddedCss}</style>
+  ${serializer.serializeToString(defsClone)}
+  <rect x="${vbX}" y="${vbY}" width="${vbW}" height="${vbH}" fill="#0B0E14" />
+  ${serializer.serializeToString(viewportClone)}
+</svg>`;
+        return { svgStr, width: vbW, height: vbH };
+      }
+
+      function exportSVG() {
+        const res = buildStandaloneSvgString();
+        if (!res) return;
+        downloadBlob(new Blob([res.svgStr], { type: 'image/svg+xml;charset=utf-8' }), 'graphql-schema.svg');
+        showToast('Exported graphql-schema.svg', 'success');
+      }
+
+      function exportPNG() {
+        const res = buildStandaloneSvgString();
+        if (!res) return;
+        const maxDim = 6000;
+        const scale = Math.min(2, maxDim / Math.max(res.width, res.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(res.width * scale);
+        canvas.height = Math.round(res.height * scale);
+        const ctx = canvas.getContext('2d');
+
+        const svgBlob = new Blob([res.svgStr], { type: 'image/svg+xml;charset=utf-8' });
+        const url = URL.createObjectURL(svgBlob);
+        const img = new Image();
+        img.onload = () => {
+          ctx.fillStyle = '#0B0E14';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          URL.revokeObjectURL(url);
+          canvas.toBlob((pngBlob) => {
+            if (pngBlob) {
+              downloadBlob(pngBlob, 'graphql-schema.png');
+              showToast('Exported graphql-schema.png', 'success');
+            } else {
+              showToast('PNG export failed in this browser.', 'error');
+            }
+          }, 'image/png');
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(url);
+          showToast('Failed to rasterize SVG to PNG.', 'error');
+        };
+        img.src = url;
+      }
+
+      function exportDOT() {
+        if (state.nodes.size === 0) return;
+        const lines = [
+          'digraph GraphQLSchema {',
+          '  rankdir=LR;',
+          '  bgcolor="#0B0E14";',
+          '  node [shape=plain, fontname="Helvetica", fontcolor="#F1F5F9"];',
+          '  edge [color="#64748B", fontname="Helvetica", fontsize=10, fontcolor="#94A3B8"];',
+          ''
+        ];
+        const escDot = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        for (const node of state.nodes.values()) {
+          const style = KIND_STYLES[node.displayKind] || KIND_STYLES.OBJECT;
+          let rowsHtml = '';
+          node.rows.forEach((r, idx) => {
+            rowsHtml += `<tr><td align="left" port="f${idx}">${escDot(r.name)}</td><td align="right"><font color="#93C5FD">${escDot(r.typeStr)}</font></td></tr>`;
+          });
+          if (!rowsHtml) rowsHtml = `<tr><td colspan="2" align="left"><font color="#64748B"><i>no fields</i></font></td></tr>`;
+          lines.push(
+            `  "${node.id}" [label=<<table border="1" cellborder="0" cellspacing="0" cellpadding="4" bgcolor="#12161F" color="${style.color}">` +
+            `<tr><td colspan="2" bgcolor="${style.color}"><font color="#FFFFFF"><b>${escDot(node.id)}</b> (${style.label})</font></td></tr>` +
+            `${rowsHtml}</table>>];`
+          );
+        }
+        lines.push('');
+        for (const e of state.edges) {
+          const srcPort = e.rowIndex >= 0 ? `:"f${e.rowIndex}"` : '';
+          let attrs = '';
+          if (e.kind === 'implements') attrs = ' [style=dashed, color="#10B981", label="implements"]';
+          else if (e.kind === 'union') attrs = ' [style=dotted, color="#A855F7", label="union"]';
+          else if (e.kind === 'argument') attrs = ' [style=dashed, color="#F97316", label="arg"]';
+          lines.push(`  "${e.source}"${srcPort} -> "${e.target}"${attrs};`);
+        }
+        lines.push('}');
+        downloadBlob(new Blob([lines.join('\n')], { type: 'text/vnd.graphviz;charset=utf-8' }), 'graphql-schema.dot');
+        showToast('Exported graphql-schema.dot', 'success');
+      }
+
+      function exportAuditMarkdown() {
+        const { findings, metrics } = state.auditData;
+        const lines = [
+          '# GraphQL Schema Security Audit Report',
+          '',
+          `Generated offline: ${new Date().toISOString()}`,
+          '',
+          '## Summary Metrics',
+          `- **Total Flagged Items:** ${metrics.total}`,
+          `- **Mutations:** ${metrics.mutations}`,
+          `- **Sensitive Fields (Auth / Admin / PII / Custom):** ${metrics.sensitive}`,
+          `- **Risky Arguments:** ${metrics.riskyArgs}`,
+          `- **Deprecated Shadow Fields:** ${metrics.deprecated}`,
+          ''
+        ];
+
+        const categories = [...new Set(findings.map(f => f.category))];
+        for (const cat of categories) {
+          const items = findings.filter(f => f.category === cat);
+          lines.push(`## ${cat} (${items.length})`, '');
+          lines.push('| Location | Tag | Severity | Return Type | Notes |');
+          lines.push('| --- | --- | --- | --- | --- |');
+          for (const it of items) {
+            lines.push(`| \`${it.typeName}.${it.fieldName}\` | \`${it.badge}\` | ${it.severity.toUpperCase()} | \`${it.returnType}\` | ${it.reason} |`);
+          }
+          lines.push('');
+        }
+
+        downloadBlob(new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' }), 'graphql-security-audit.md');
+        showToast('Exported graphql-security-audit.md', 'success');
+      }
+
+      function exportAuditJSON() {
+        const payload = {
+          generatedAt: new Date().toISOString(),
+          customPatterns: state.customPatternRaw,
+          metrics: state.auditData.metrics,
+          findings: state.auditData.findings.map(f => ({
+            type: f.typeName,
+            field: f.fieldName,
+            category: f.category,
+            badge: f.badge,
+            severity: f.severity,
+            returnType: f.returnType,
+            args: f.args.map(a => ({ name: a.name, type: formatTypeRef(a.type) })),
+            reason: f.reason
+          }))
+        };
+        downloadBlob(
+          new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' }),
+          'graphql-security-audit.json'
+        );
+        showToast('Exported graphql-security-audit.json', 'success');
+      }
+
+      /* -----------------------------------------------------------------------
+         15. MODAL & SCHEMA LOADING WORKFLOW
+         ----------------------------------------------------------------------- */
+      function openLoaderModal() {
+        dom.loaderError.classList.remove('visible');
+        dom.loaderModal.classList.add('open');
+      }
+
+      function closeLoaderModal() {
+        dom.loaderModal.classList.remove('open');
+      }
+
+      function showLoaderError(msg) {
+        dom.loaderError.textContent = msg;
+        dom.loaderError.classList.add('visible');
+      }
+
+      function loadSchemaObject(jsonObj, sourceLabel = 'Schema') {
+        try {
+          const parsed = parseSchema(jsonObj);
+          state.rawSchema = jsonObj;
+          state.parsed = parsed;
+          state.selectedNodeId = null;
+          dom.inspectorHeader.style.display = 'none';
+          dom.inspBody.innerHTML = `<div class="empty-inspector">Click any type card on the canvas to inspect its fields, arguments, and reverse relations.</div>`;
+          runSecurityAudit();
+          buildGraphModel(false);
+          if (state.auditMode) renderAuditPanel();
+          fitToView();
+          closeLoaderModal();
+          showToast(`${sourceLabel} loaded (${state.nodes.size} types, ${state.auditData.metrics.total} audit flags)`, 'success');
+        } catch (err) {
+          showLoaderError(err.message || 'Invalid GraphQL introspection schema.');
+        }
+      }
+
+      function handleFileUpload(file) {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          dom.schemaTextarea.value = e.target.result;
+          dom.loaderError.classList.remove('visible');
+          try {
+            loadSchemaObject(JSON.parse(e.target.result), file.name);
+          } catch (err) {
+            showLoaderError(`JSON Parse Error in "${file.name}": ${err.message}`);
+          }
+        };
+        reader.onerror = () => showLoaderError('Failed to read file.');
+        reader.readAsText(file);
+      }
+
+      /* -----------------------------------------------------------------------
+         16. EVENT BINDINGS
+         ----------------------------------------------------------------------- */
+      function initEventListeners() {
+        // Load Schema Modal
+        dom.btnOpenLoader.addEventListener('click', openLoaderModal);
+        dom.btnCloseModal.addEventListener('click', closeLoaderModal);
+        dom.btnCancelModal.addEventListener('click', closeLoaderModal);
+        dom.loaderModal.addEventListener('click', (ev) => {
+          if (ev.target === dom.loaderModal) closeLoaderModal();
+        });
+
+        document.querySelectorAll('.modal-tab').forEach(tab => {
+          tab.addEventListener('click', () => {
+            document.querySelectorAll('.modal-tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+            tab.classList.add('active');
+            document.getElementById(`tab-${tab.getAttribute('data-tab')}`).classList.add('active');
+          });
+        });
+
+        dom.dropzone.addEventListener('click', () => dom.fileInput.click());
+        dom.fileInput.addEventListener('change', (ev) => {
+          if (ev.target.files && ev.target.files[0]) {
+            handleFileUpload(ev.target.files[0]);
+            ev.target.value = '';
+          }
+        });
+        dom.dropzone.addEventListener('dragover', (ev) => {
+          ev.preventDefault();
+          dom.dropzone.classList.add('dragover');
+        });
+        dom.dropzone.addEventListener('dragleave', () => dom.dropzone.classList.remove('dragover'));
+        dom.dropzone.addEventListener('drop', (ev) => {
+          ev.preventDefault();
+          dom.dropzone.classList.remove('dragover');
+          if (ev.dataTransfer.files && ev.dataTransfer.files[0]) handleFileUpload(ev.dataTransfer.files[0]);
+        });
+
+        dom.btnApplySchema.addEventListener('click', () => {
+          const text = dom.schemaTextarea.value.trim();
+          if (!text) {
+            showLoaderError('Please paste an introspection JSON response or upload a .json file.');
+            return;
+          }
+          try {
+            loadSchemaObject(JSON.parse(text), 'Custom schema');
+          } catch (err) {
+            showLoaderError(`JSON Syntax Error: ${err.message}`);
+          }
+        });
+
+        dom.btnLoadSample.addEventListener('click', () => {
+          dom.schemaTextarea.value = JSON.stringify(SAMPLE_SCHEMA, null, 2);
+          loadSchemaObject(SAMPLE_SCHEMA, 'Enterprise SaaS sample');
+        });
+
+        dom.btnCopyQuery.addEventListener('click', () => {
+          copyTextToClipboard(dom.queryTextarea.value, 'Introspection query copied to clipboard!');
+        });
+
+        // Security Audit Mode Controls
+        dom.btnAuditMode.addEventListener('click', () => toggleAuditMode());
+
+        dom.btnFocusFlagged.addEventListener('click', () => {
+          state.auditFocusFlagged = !state.auditFocusFlagged;
+          dom.btnFocusFlagged.classList.toggle('active', state.auditFocusFlagged);
+          applySelectionHighlight();
+        });
+
+        dom.auditCatGroup.querySelectorAll('.audit-cat-pill').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const cat = btn.getAttribute('data-cat');
+            state.auditCategories[cat] = !state.auditCategories[cat];
+            btn.classList.toggle('active', state.auditCategories[cat]);
+            renderAuditPanel();
+            renderGraph();
+          });
+        });
+
+        dom.customPatternInput.addEventListener('input', (ev) => {
+          state.customPatternRaw = ev.target.value;
+          runSecurityAudit();
+          renderAuditPanel();
+          if (state.auditMode) renderGraph();
+        });
+
+        dom.btnExportAuditMd.addEventListener('click', exportAuditMarkdown);
+        dom.btnExportAuditJson.addEventListener('click', exportAuditJSON);
+
+        // Sidebar Tabs & Close
+        dom.tabBtnInspector.addEventListener('click', () => switchSidebarTab('inspector'));
+        dom.tabBtnAudit.addEventListener('click', () => {
+          switchSidebarTab('audit');
+          renderAuditPanel();
+        });
+        dom.btnSidebarClose.addEventListener('click', () => {
+          closeSidebar();
+          if (state.selectedNodeId) {
+            state.selectedNodeId = null;
+            applySelectionHighlight();
+          }
+        });
+        dom.btnInspFocus.addEventListener('click', () => {
+          if (state.selectedNodeId) focusNode(state.selectedNodeId);
+        });
+
+        // Kind Filter Pills
+        dom.filterGroup.querySelectorAll('.filter-pill').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const key = btn.getAttribute('data-filter');
+            state.filters[key] = !state.filters[key];
+            btn.classList.toggle('active', state.filters[key]);
+            buildGraphModel(false);
+            fitToView();
+          });
+        });
+
+        // Relations Only Toggle
+        dom.btnRelationsToggle.addEventListener('click', () => {
+          state.relationsOnly = !state.relationsOnly;
+          dom.relationsToggleLabel.textContent = state.relationsOnly ? 'Relations Only' : 'All Fields';
+          dom.btnRelationsToggle.style.borderColor = state.relationsOnly ? 'var(--accent-pink)' : '';
+          buildGraphModel(true);
+        });
+
+        // Search
+        dom.searchInput.addEventListener('input', (ev) => updateSearchResults(ev.target.value));
+        dom.searchInput.addEventListener('focus', (ev) => {
+          if (ev.target.value.trim()) updateSearchResults(ev.target.value);
+        });
+        dom.searchInput.addEventListener('blur', () => {
+          setTimeout(() => dom.searchDropdown.classList.remove('open'), 140);
+        });
+        dom.searchInput.addEventListener('keydown', (ev) => {
+          if (!dom.searchDropdown.classList.contains('open')) return;
+          if (ev.key === 'ArrowDown') {
+            ev.preventDefault();
+            state.searchActiveIdx = (state.searchActiveIdx + 1) % Math.max(1, state.searchResults.length);
+            highlightSearchItem();
+          } else if (ev.key === 'ArrowUp') {
+            ev.preventDefault();
+            state.searchActiveIdx = (state.searchActiveIdx - 1 + state.searchResults.length) % Math.max(1, state.searchResults.length);
+            highlightSearchItem();
+          } else if (ev.key === 'Enter') {
+            ev.preventDefault();
+            if (state.searchActiveIdx >= 0) pickSearchResult(state.searchActiveIdx);
+          }
+        });
+
+        // Export Dropdown
+        dom.btnExportMenu.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          const rect = dom.btnExportMenu.getBoundingClientRect();
+          dom.exportDropdown.style.left = `${Math.max(8, rect.right - 200)}px`;
+          dom.exportDropdown.style.top = `${rect.bottom + 6}px`;
+          dom.exportDropdown.classList.toggle('open');
+        });
+        dom.exportDropdown.querySelectorAll('.dropdown-item').forEach(item => {
+          item.addEventListener('click', () => {
+            dom.exportDropdown.classList.remove('open');
+            const fmt = item.getAttribute('data-export');
+            if (fmt === 'svg') exportSVG();
+            else if (fmt === 'png') exportPNG();
+            else if (fmt === 'dot') exportDOT();
+          });
+        });
+        window.addEventListener('click', () => dom.exportDropdown.classList.remove('open'));
+
+        // Canvas Floating Controls
+        dom.btnZoomIn.addEventListener('click', () => {
+          const r = dom.svg.getBoundingClientRect();
+          zoomAtPoint(1.2, r.left + r.width / 2, r.top + r.height / 2);
+        });
+        dom.btnZoomOut.addEventListener('click', () => {
+          const r = dom.svg.getBoundingClientRect();
+          zoomAtPoint(0.82, r.left + r.width / 2, r.top + r.height / 2);
+        });
+        dom.btnFitView.addEventListener('click', () => fitToView());
+        dom.btnAutoLayout.addEventListener('click', () => {
+          runAutoLayout();
+          renderGraph();
+          fitToView();
+          showToast('Layout reset to automatic layers', 'info');
+        });
+
+        // Global Keyboard Shortcuts
+        window.addEventListener('keydown', (ev) => {
+          const tag = document.activeElement ? document.activeElement.tagName : '';
+          const typing = tag === 'INPUT' || tag === 'TEXTAREA';
+
+          if (ev.key === 'Escape') {
+            if (dom.loaderModal.classList.contains('open')) closeLoaderModal();
+            else if (document.activeElement === dom.searchInput) {
+              dom.searchInput.value = '';
+              dom.searchDropdown.classList.remove('open');
+              dom.searchInput.blur();
+            } else {
+              clearSelection();
+            }
+            return;
+          }
+
+          if (typing) return;
+
+          if (ev.key === '/') {
+            ev.preventDefault();
+            dom.searchInput.focus();
+          } else if (ev.key === 'f' || ev.key === 'F') {
+            ev.preventDefault();
+            fitToView();
+          } else if (ev.key === 'a' || ev.key === 'A') {
+            ev.preventDefault();
+            toggleAuditMode();
+          }
+        });
+      }
+
+      function highlightSearchItem() {
+        dom.searchDropdown.querySelectorAll('.search-item').forEach((el, i) => {
+          el.classList.toggle('active', i === state.searchActiveIdx);
+          if (i === state.searchActiveIdx) el.scrollIntoView({ block: 'nearest' });
+        });
+      }
+
+      /* -----------------------------------------------------------------------
+         17. INITIALIZATION
+         ----------------------------------------------------------------------- */
+      function init() {
+        dom.queryTextarea.value = STANDARD_INTROSPECTION_QUERY;
+        initEventListeners();
+
+        // Pre-load the Enterprise SaaS / E-commerce sample schema
+        state.rawSchema = SAMPLE_SCHEMA;
+        state.parsed = parseSchema(SAMPLE_SCHEMA);
+        runSecurityAudit();
+        buildGraphModel(false);
+        requestAnimationFrame(() => fitToView());
+      }
+
+      window.addEventListener('DOMContentLoaded', init);
+    })();
+  </script>
+</body>
+</html>
